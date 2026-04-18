@@ -1,59 +1,11 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
-
-// Map Controller to handle flying to locations and fixing container size issues
-const MapController = ({ center, zoom, sidebarWidth, windowWidth, view }) => {
-  const map = useMap();
-  const lastCenterRef = React.useRef(null);
-  
-  useEffect(() => {
-    if (!center || !Array.isArray(center) || center.length !== 2) return;
-    
-    const lat = parseFloat(center[0]);
-    const lng = parseFloat(center[1]);
-    
-    if (isNaN(lat) || isNaN(lng)) return;
-
-    // Avoid redundant animations to the same spot
-    const centerKey = `${lat},${lng}`;
-    if (lastCenterRef.current === centerKey) return;
-    lastCenterRef.current = centerKey;
-    
-    try {
-      // Check if map container has size before animating
-      const size = map.getSize();
-      if (size.x === 0 || size.y === 0) {
-        map.invalidateSize();
-        // Delay the flyTo slightly if map was just shown
-        setTimeout(() => {
-          map.flyTo([lat, lng], zoom || map.getZoom() || 12, { duration: 1 });
-        }, 100);
-      } else {
-        map.flyTo([lat, lng], zoom || map.getZoom() || 12, { duration: 1 });
-      }
-    } catch (e) {
-      console.warn("Map movement prevented:", e);
-    }
-  }, [center, zoom, map]);
-
-  // Fix for grey patches (invalidateSize)
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      try {
-        map.invalidateSize({ animate: true });
-      } catch (e) {}
-    }, 250);
-    return () => clearTimeout(timer);
-  }, [map, sidebarWidth, windowWidth, view]);
-
-  return null;
-};
-import { CheckCircle2, Circle, Map as MapIcon, List, Filter, Home, Briefcase, MapPin, Search, Star, X, Plus, Save, Loader2, Bed, RotateCcw } from 'lucide-react';
+import L from 'leaflet';
 import { renderToStaticMarkup } from 'react-dom/server';
 import 'leaflet/dist/leaflet.css';
+import { CheckCircle2, Circle, Map as MapIcon, List, Filter, Home, Briefcase, MapPin, Search, Star, X, Plus, Save, Loader2, Bed, RotateCcw } from 'lucide-react';
 
 // Fix for default marker icons
-import L from 'leaflet';
 import markerIcon from 'leaflet/dist/images/marker-icon.png';
 import markerShadow from 'leaflet/dist/images/marker-shadow.png';
 let DefaultIcon = L.icon({
@@ -65,7 +17,7 @@ let DefaultIcon = L.icon({
 L.Marker.prototype.options.icon = DefaultIcon;
 
 // Custom Icons for Markers
-const createCustomIcon = (IconComponent, color) => {
+const createCustomIcon = (IconComponent: any, color: string) => {
   return L.divIcon({
     html: renderToStaticMarkup(
       <div style={{ color }} className="bg-white rounded-full shadow-md border-2 border-current flex items-center justify-center w-[30px] h-[30px]">
@@ -83,19 +35,97 @@ const officeIcon = createCustomIcon(Briefcase, '#0891b2'); // Cyan
 const hotelMarkerIcon = createCustomIcon(Bed, '#8b5cf6'); // Violet
 const defaultPinIcon = createCustomIcon(MapPin, '#64748b'); // Slate
 
+// Types
+interface Place {
+  id: string;
+  name: string;
+  address: string;
+  lat: number;
+  lng: number;
+  category: string;
+  status: string;
+  notes: string;
+  rating: string;
+  scope: string;
+  return?: string | boolean;
+  type?: 'place' | 'hotel';
+}
+
+interface MarkerData {
+  id: string;
+  name: string;
+  address: string;
+  lat: number;
+  lng: number;
+  type: string;
+  notes: string;
+  scope: string;
+}
+
+// Map Controller Component
+const MapController = ({ center, zoom, sidebarWidth, windowWidth, view }: any) => {
+  const map = useMap();
+  const lastCenterRef = useRef<string | null>(null);
+  
+  useEffect(() => {
+    if (!center || !Array.isArray(center) || center.length !== 2) return;
+    
+    const lat = parseFloat(center[0]);
+    const lng = parseFloat(center[1]);
+    
+    if (isNaN(lat) || isNaN(lng)) return;
+
+    const centerKey = `${lat},${lng}`;
+    if (lastCenterRef.current === centerKey) return;
+    lastCenterRef.current = centerKey;
+    
+    try {
+      const size = map.getSize();
+      if (size.x === 0 || size.y === 0) {
+        map.invalidateSize();
+        setTimeout(() => {
+          map.flyTo([lat, lng], zoom || map.getZoom() || 12, { duration: 1 });
+        }, 100);
+      } else {
+        map.flyTo([lat, lng], zoom || map.getZoom() || 12, { duration: 1 });
+      }
+    } catch (e) {
+      console.warn("Map movement prevented:", e);
+    }
+  }, [center, zoom, map]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      try {
+        map.invalidateSize({ animate: true });
+      } catch (e) {}
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [map, sidebarWidth, windowWidth, view]);
+
+  return null;
+};
+
 const App = () => {
-  const [places, setPlaces] = useState([]);
-  const [markers, setMarkers] = useState([]);
-  const [hotels, setHotels] = useState([]);
+  const [places, setPlaces] = useState<Place[]>([]);
+  const [markers, setMarkers] = useState<MarkerData[]>([]);
+  const [hotels, setHotels] = useState<Place[]>([]);
   const [filter, setFilter] = useState('All');
   const [activeScope, setActiveScope] = useState('Austin');
   const [view, setView] = useState('split');
   const [sidebarWidth, setSidebarWidth] = useState(33.33);
   const [isResizing, setIsResizing] = useState(false);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [mapTarget, setMapTarget] = useState(null);
+  const [mapTarget, setMapTarget] = useState<any>(null);
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
+
+  // Search state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [isAdding, setIsAdding] = useState(false);
+  const [pendingPlace, setPendingPlace] = useState<any>(null);
 
   useEffect(() => {
     const handleResize = () => {
@@ -107,21 +137,6 @@ const App = () => {
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, [view]);
-  
-  // Search state
-  const centerOnMap = (lat, lng) => {
-    const nLat = parseFloat(lat);
-    const nLng = parseFloat(lng);
-    if (isNaN(nLat) || isNaN(nLng) || (nLat === 0 && nLng === 0)) return;
-    
-    setMapTarget({ center: [nLat, nLng], zoom: 15 });
-    if (window.innerWidth < 640) setView('map');
-  };
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState([]);
-  const [isSearching, setIsSearching] = useState(false);
-  const [isAdding, setIsAdding] = useState(false);
-  const [pendingPlace, setPendingPlace] = useState(null);
 
   useEffect(() => {
     setIsLoading(true);
@@ -147,13 +162,22 @@ const App = () => {
       });
   }, []);
 
-  const startResizing = (e) => {
+  const centerOnMap = (lat: any, lng: any) => {
+    const nLat = parseFloat(lat);
+    const nLng = parseFloat(lng);
+    if (isNaN(nLat) || isNaN(nLng) || nLat === 0 || nLng === 0) return;
+    
+    setMapTarget({ center: [nLat, nLng], zoom: 15 });
+    if (window.innerWidth < 640) setView('map');
+  };
+
+  const startResizing = (e: React.MouseEvent) => {
     setIsResizing(true);
     e.preventDefault();
   };
 
   useEffect(() => {
-    const handleMouseMove = (e) => {
+    const handleMouseMove = (e: MouseEvent) => {
       if (!isResizing) return;
       const newWidth = (e.clientX / window.innerWidth) * 100;
       if (newWidth > 15 && newWidth < 60) {
@@ -176,7 +200,7 @@ const App = () => {
     };
   }, [isResizing]);
 
-  const updatePlace = async (id, data, type = 'place') => {
+  const updatePlace = async (id: string, data: any, type: 'place' | 'hotel' = 'place') => {
     const previousState = type === 'hotel' ? [...hotels] : [...places];
     if (type === 'hotel') {
       setHotels(hotels.map(h => h.id === id ? { ...h, ...data } : h));
@@ -200,12 +224,11 @@ const App = () => {
     }
   };
 
-  const handleSearch = async (e) => {
+  const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!searchQuery) return;
     setIsSearching(true);
     try {
-      // Adjust search based on active scope
       let url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}`;
       if (activeScope === 'Austin') {
         url += '&viewbox=-98.3,30.7,-97.2,29.8&bounded=1';
@@ -224,11 +247,11 @@ const App = () => {
     }
   };
 
-  const addPlace = async (category) => {
+  const addPlace = async (category: string) => {
     if (!pendingPlace) return;
     setIsAdding(true);
     const isHotel = category === 'Hotels';
-    const newEntry = {
+    const newEntry: any = {
       name: pendingPlace.display_name.split(',')[0],
       address: pendingPlace.display_name.split(',').slice(1).join(',').trim(),
       lat: parseFloat(pendingPlace.lat),
@@ -285,39 +308,30 @@ const App = () => {
   }, [hotels, filter, activeScope]);
 
   const visitedGroups = useMemo(() => {
-    if (filter !== 'Visited') return [];
+    if (filter !== 'Visited') return {};
     
     const allVisited = [
-      ...filteredPlaces.map(p => ({ ...p, type: 'place' })),
-      ...filteredHotels.map(h => ({ ...h, category: 'Hotels', type: 'hotel' }))
+      ...filteredPlaces.map(p => ({ ...p, type: 'place' as const })),
+      ...filteredHotels.map(h => ({ ...h, category: 'Hotels', type: 'hotel' as const }))
     ];
 
-    // Group by category
-    const groups = allVisited.reduce((acc, item) => {
+    const groups = allVisited.reduce((acc: any, item) => {
       const cat = item.category || 'Other';
       if (!acc[cat]) acc[cat] = [];
       acc[cat].push(item);
       return acc;
     }, {});
 
-    // Sort each group
     Object.keys(groups).forEach(cat => {
-      groups[cat].sort((a, b) => {
+      groups[cat].sort((a: any, b: any) => {
         const aScore = a.rating ? parseInt(a.rating) : 0;
         const bScore = b.rating ? parseInt(b.rating) : 0;
-        
-        // 1. Unscored (0 rating) items at the very top
         if (aScore === 0 && bScore !== 0) return -1;
         if (aScore !== 0 && bScore === 0) return 1;
-        
-        // 2. Both scored or both unscored, sort by "return" flag
         const aReturn = a.return === 'TRUE' || a.return === true;
         const bReturn = b.return === 'TRUE' || b.return === true;
-        
         if (aReturn && !bReturn) return -1;
         if (!aReturn && bReturn) return 1;
-        
-        // 3. Keep existing relative order for same status
         return 0;
       });
     });
@@ -329,13 +343,13 @@ const App = () => {
     return markers.filter(m => m.scope === activeScope);
   }, [markers, activeScope]);
 
-  const getMarkerIcon = (type) => {
+  const getMarkerIcon = (type: string) => {
     if (type === 'home') return homeIcon;
     if (type === 'office') return officeIcon;
     return defaultPinIcon;
   };
 
-  const StarRating = ({ rating, onChange }) => (
+  const StarRating = ({ rating, onChange }: { rating: string, onChange: (r: string) => void }) => (
     <div className="flex gap-1">
       {[1, 2, 3, 4, 5].map(star => (
         <button
@@ -351,7 +365,6 @@ const App = () => {
 
   return (
     <div className={`flex flex-col h-screen bg-slate-50 font-sans text-slate-900 ${isResizing ? 'cursor-col-resize select-none' : ''}`}>
-      {/* Header */}
       <header className="p-3 sm:p-4 bg-white border-b flex flex-col gap-3 shrink-0 z-10">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3 sm:gap-4">
@@ -375,7 +388,6 @@ const App = () => {
           </div>
         </div>
 
-        {/* Filter Bar */}
         <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1 sm:pb-0">
           <Filter size={16} className="text-slate-400 shrink-0" />
           {categories.map(cat => (
@@ -407,7 +419,6 @@ const App = () => {
           }}
           className={`overflow-y-auto p-3 sm:p-4 space-y-6 shrink-0 ${view === 'map' ? 'hidden sm:block sm:!w-0' : 'block'}`}
         >
-          {/* Add New Place Search - Visible only in list view on mobile */}
           <section className="space-y-3">
             <h2 className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-widest px-1">Add New Place</h2>
             <form onSubmit={handleSearch} className="relative">
@@ -478,7 +489,6 @@ const App = () => {
             )}
           </section>
 
-          {/* Saved Locations */}
           {filter === 'Saved' && (
             <section className="space-y-3">
               <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest px-1">Key Locations</h2>
@@ -495,27 +505,24 @@ const App = () => {
                   ))
                 ) : (
                   <>
-                    {markers.map(marker => (
+                    {markers.filter(m => m.scope === activeScope).map(marker => (
                       <div key={marker.id} onClick={() => centerOnMap(marker.lat, marker.lng)} className="flex items-center gap-3 p-3 bg-indigo-50/50 rounded-lg border border-indigo-100 cursor-pointer hover:bg-indigo-50 transition-colors group/marker">
                         <div className="text-indigo-600 w-8 h-8 flex items-center justify-center shrink-0 group-hover/marker:scale-110 transition-transform">
-
                           {marker.type === 'home' ? <Home size={20} /> : <Briefcase size={20} />}
                         </div>
-
                         <div className="min-w-0">
                           <h4 className="font-semibold text-sm truncate">{marker.name}</h4>
                           <p className="text-xs text-slate-500 truncate">{marker.address}</p>
                         </div>
                       </div>
                     ))}
-                    {markers.length === 0 && <div className="text-center py-10 text-slate-400 text-sm">No saved locations found.</div>}
+                    {markers.filter(m => m.scope === activeScope).length === 0 && <div className="text-center py-10 text-slate-400 text-sm">No saved locations found.</div>}
                   </>
                 )}
               </div>
             </section>
           )}
 
-          {/* Places List */}
           {filter !== 'Saved' && (
             <section className="space-y-6">
               <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest px-1">
@@ -523,7 +530,6 @@ const App = () => {
               </h2>
               <div className="space-y-4">
                 {isLoading ? (
-                  // Loading Skeletons
                   [1, 2, 3].map(i => (
                     <div key={i} className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex flex-col gap-3 animate-pulse">
                       <div className="flex justify-between items-center">
@@ -537,17 +543,15 @@ const App = () => {
                     </div>
                   ))
                 ) : filter === 'Visited' ? (
-                  // Grouped Visited View
-                  Object.entries(visitedGroups).map(([category, items]) => (
+                  Object.entries(visitedGroups).map(([category, items]: any) => (
                     <div key={category} className="space-y-3">
                       <h3 className="text-[10px] font-black text-indigo-300 uppercase tracking-[0.2em] px-1 pl-2 border-l-2 border-indigo-100">{category}</h3>
                       <div className="space-y-3">
-                        {items.map(item => (
+                        {items.map((item: any) => (
                           <div 
                             key={item.id} 
                             onClick={(e) => {
-                              // Only center if they didn't click a button, rating, or textarea
-                              if (!e.target.closest('button') && !e.target.closest('textarea')) {
+                              if (!(e.target as HTMLElement).closest('button') && !(e.target as HTMLElement).closest('textarea')) {
                                 centerOnMap(item.lat, item.lng);
                               }
                             }}
@@ -566,7 +570,7 @@ const App = () => {
                               </button>
                             </div>
 
-                            <div className="pt-3 border-t border-slate-50 space-y-3 animate-in fade-in slide-in-from-top-1">
+                            <div className="pt-3 border-t border-slate-50 space-y-3">
                               <div className="flex items-center justify-between">
                                 <div className="space-y-1">
                                   <span className="text-xs font-bold text-slate-400 uppercase">{item.type === 'hotel' ? 'Stay Rating' : 'Your Rating'}</span>
@@ -609,14 +613,12 @@ const App = () => {
                     </div>
                   ))
                 ) : (
-                  // Standard Flat List View (All, Food, Drinks, etc.)
                   <>
-                    {/* Render Hotels */}
                     {filteredHotels.map(hotel => (
                       <div 
                         key={hotel.id} 
                         onClick={(e) => {
-                          if (!e.target.closest('button')) centerOnMap(hotel.lat, hotel.lng);
+                          if (!(e.target as HTMLElement).closest('button')) centerOnMap(hotel.lat, hotel.lng);
                         }}
                         className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex flex-col gap-3 group hover:border-indigo-200 transition-all cursor-pointer"
                       >
@@ -636,17 +638,17 @@ const App = () => {
                       </div>
                     ))}
 
-                    {/* Render Places */}
                     {filteredPlaces.map(place => (
                       <div 
                         key={place.id} 
                         onClick={(e) => {
-                          if (!e.target.closest('button')) centerOnMap(place.lat, place.lng);
+                          if (!(e.target as HTMLElement).closest('button')) centerOnMap(place.lat, place.lng);
                         }}
                         className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex flex-col gap-3 group hover:border-indigo-200 transition-all cursor-pointer"
                       >
                         <div className="flex justify-between items-center">
                           <div className="min-w-0 pr-2">
+                            <span className="text-xs font-bold uppercase tracking-wider text-slate-400">{place.category}</span>
                             <h3 className="font-semibold text-lg truncate">{place.name}</h3>
                             <p className="text-sm text-slate-500 truncate">{place.address}</p>
                           </div>
@@ -667,10 +669,7 @@ const App = () => {
           )}
         </div>
 
-        <div 
-          onMouseDown={startResizing}
-          className="hidden sm:flex w-1 bg-slate-200 hover:bg-indigo-400 cursor-col-resize transition-colors items-center justify-center z-10"
-        >
+        <div onMouseDown={startResizing} className="hidden sm:flex w-1 bg-slate-200 hover:bg-indigo-400 cursor-col-resize transition-colors items-center justify-center z-10">
           <div className="w-px h-8 bg-slate-400"></div>
         </div>
 
@@ -683,105 +682,32 @@ const App = () => {
               </div>
             </div>
           )}
-          <MapContainer 
-            key={activeScope}
-            center={activeScope === 'Austin' ? [30.2672, -97.7431] : [37.0902, -95.7129]} 
-            zoom={activeScope === 'Austin' ? 12 : 4} 
-            className="h-full w-full z-0"
-          >
-            <TileLayer
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-            />
-            {/* Render Map Controller (Handles flying and size fixes) */}
-            <MapController 
-              center={mapTarget?.center} 
-              zoom={mapTarget?.zoom} 
-              sidebarWidth={sidebarWidth}
-              windowWidth={windowWidth}
-              view={view}
-            />
+          <MapContainer key={activeScope} center={activeScope === 'Austin' ? [30.2672, -97.7431] : [37.0902, -95.7129]} zoom={activeScope === 'Austin' ? 12 : 4} className="h-full w-full z-0">
+            <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' />
+            <MapController center={mapTarget?.center} zoom={mapTarget?.zoom} sidebarWidth={sidebarWidth} windowWidth={windowWidth} view={view} />
             {filteredMarkers.filter(m => m.lat && m.lng && !isNaN(m.lat) && !isNaN(m.lng)).map(marker => (
               <Marker key={marker.id} position={[marker.lat, marker.lng]} icon={getMarkerIcon(marker.type)}>
-                <Popup>
-                  <div className="font-sans">
-                    <strong className="block text-indigo-600">{marker.name}</strong>
-                    <span className="text-xs text-slate-500">{marker.address}</span>
-                  </div>
-                </Popup>
+                <Popup><div className="font-sans"><strong>{marker.name}</strong><span className="block text-xs text-slate-500">{marker.address}</span></div></Popup>
               </Marker>
             ))}
-            {/* Render Filtered Hotels */}
             {filteredHotels.filter(h => h.lat && h.lng && !isNaN(h.lat) && !isNaN(h.lng)).map(hotel => (
               <Marker key={hotel.id} position={[hotel.lat, hotel.lng]} icon={hotelMarkerIcon}>
-                <Popup>
-                  <div className="font-sans">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-violet-500">Hotel</span>
-                    <strong className="block text-indigo-600">{hotel.name}</strong>
-                    <span className="text-xs text-slate-500">{hotel.address}</span>
-                    {hotel.rating && (
-                      <div className="flex gap-0.5 text-yellow-500 mt-1">
-                        {Array.from({ length: parseInt(hotel.rating) }).map((_, i) => (
-                          <Star key={i} size={12} fill="currentColor" />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </Popup>
+                <Popup><div className="font-sans"><span className="text-[10px] font-bold uppercase tracking-wider text-violet-500">Hotel</span><strong>{hotel.name}</strong><span className="block text-xs text-slate-500">{hotel.address}</span>{hotel.rating && <div className="flex gap-0.5 text-yellow-500 mt-1">{Array.from({ length: parseInt(hotel.rating) }).map((_, i) => <Star key={i} size={12} fill="currentColor" />)}</div>}</div></Popup>
               </Marker>
             ))}
-            {/* Render Filtered Places */}
             {filteredPlaces.filter(p => p.lat && p.lng && !isNaN(p.lat) && !isNaN(p.lng)).map(place => (
               <Marker key={place.id} position={[place.lat, place.lng]}>
-                <Popup>
-                  <div className="font-sans">
-                    <strong className="block text-indigo-600">{place.name}</strong>
-                    <span className="text-xs text-slate-500">{place.address}</span>
-                    {place.rating && (
-                      <div className="flex gap-0.5 text-yellow-500 mt-1">
-                        {Array.from({ length: parseInt(place.rating) }).map((_, i) => (
-                          <Star key={i} size={12} fill="currentColor" />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </Popup>
+                <Popup><div className="font-sans"><strong>{place.name}</strong><span className="block text-xs text-slate-500">{place.address}</span>{place.rating && <div className="flex gap-0.5 text-yellow-500 mt-1">{Array.from({ length: parseInt(place.rating) }).map((_, i) => <Star key={i} size={12} fill="currentColor" />)}</div>}</div></Popup>
               </Marker>
             ))}
           </MapContainer>
         </div>
       </main>
 
-      {/* Mobile Bottom Navigation */}
       <nav className="sm:hidden fixed bottom-0 left-0 right-0 bg-white border-t flex items-center justify-around h-[60px] z-[100] px-4">
-        <button 
-          onClick={() => setView('list')}
-          className={`flex flex-col items-center gap-1 transition-colors ${view === 'list' ? 'text-indigo-600' : 'text-slate-400'}`}
-        >
-          <List size={20} />
-          <span className="text-[10px] font-bold uppercase">List</span>
-        </button>
-        
-        <button 
-          onClick={() => {
-            setView('list');
-            // Small delay to ensure view has switched before searching for element
-            setTimeout(() => {
-              document.querySelector('input[type="text"]')?.focus();
-            }, 50);
-          }}
-          className="flex flex-col items-center justify-center -mt-8 bg-indigo-600 text-white w-14 h-14 rounded-full shadow-lg ring-4 ring-slate-50 active:scale-95 transition-transform"
-        >
-          <Plus size={24} />
-        </button>
-
-        <button 
-          onClick={() => setView('map')}
-          className={`flex flex-col items-center gap-1 transition-colors ${view === 'map' ? 'text-indigo-600' : 'text-slate-400'}`}
-        >
-          <MapIcon size={20} />
-          <span className="text-[10px] font-bold uppercase">Map</span>
-        </button>
+        <button onClick={() => setView('list')} className={`flex flex-col items-center gap-1 ${view === 'list' ? 'text-indigo-600' : 'text-slate-400'}`}><List size={20} /><span className="text-[10px] font-bold uppercase">List</span></button>
+        <button onClick={() => { setView('list'); setTimeout(() => { document.querySelector('input[type="text"]')?.focus(); }, 50); }} className="flex flex-col items-center justify-center -mt-8 bg-indigo-600 text-white w-14 h-14 rounded-full shadow-lg ring-4 ring-slate-50"><Plus size={24} /></button>
+        <button onClick={() => setView('map')} className={`flex flex-col items-center gap-1 ${view === 'map' ? 'text-indigo-600' : 'text-slate-400'}`}><MapIcon size={20} /><span className="text-[10px] font-bold uppercase">Map</span></button>
       </nav>
     </div>
   );

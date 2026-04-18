@@ -1,7 +1,8 @@
 import { GoogleSpreadsheet } from 'google-spreadsheet';
 import { JWT } from 'google-auth-library';
+import type { VercelRequest, VercelResponse } from '@vercel/node';
 
-export default async function handler(req, res) {
+export default async function handler(req: VercelRequest, res: VercelResponse) {
   const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
   const key = process.env.GOOGLE_PRIVATE_KEY;
   const sheetId = process.env.SHEET_ID;
@@ -14,10 +15,6 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Robust key formatting:
-    // 1. Remove accidental wrapping quotes
-    // 2. Convert literal '\n' strings to real newlines
-    // 3. Ensure no trailing/leading whitespace
     const formattedKey = key
       .trim()
       .replace(/^"(.*)"$/, '$1')
@@ -112,8 +109,8 @@ export default async function handler(req, res) {
           id: newId,
           name: name || 'New Hotel',
           address: address || '',
-          lat: lat || 0,
-          lng: lng || 0,
+          lat: String(lat || 0),
+          lng: String(lng || 0),
           status: 'To Do',
           notes: notes || '',
           rating: '',
@@ -126,8 +123,8 @@ export default async function handler(req, res) {
           category: category || 'Other',
           name: name || 'New Place',
           address: address || '',
-          lat: lat || 0,
-          lng: lng || 0,
+          lat: String(lat || 0),
+          lng: String(lng || 0),
           status: 'To Do',
           notes: notes || '',
           rating: '',
@@ -139,7 +136,7 @@ export default async function handler(req, res) {
     }
 
     return res.status(405).json({ error: 'Method not allowed' });
-  } catch (error) {
+  } catch (error: any) {
     console.error('API Error:', error);
     return res.status(500).json({ 
       error: error.message || 'Unknown Google API Error',
