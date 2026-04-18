@@ -1,0 +1,149 @@
+import { GoogleSpreadsheet } from 'google-spreadsheet';
+import { JWT } from 'google-auth-library';
+
+export default async function handler(req, res) {
+  const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+  const key = process.env.GOOGLE_PRIVATE_KEY;
+  const sheetId = process.env.SHEET_ID;
+
+  if (!email || !key || !sheetId) {
+    return res.status(500).json({ 
+      error: 'Missing environment variables in Vercel.',
+      details: `Email: ${!!email}, Key: ${!!key}, Sheet: ${!!sheetId}`
+    });
+  }
+
+  try {
+    // Robust key formatting:
+    // 1. Remove accidental wrapping quotes
+    // 2. Convert literal '\n' strings to real newlines
+    // 3. Ensure no trailing/leading whitespace
+    const formattedKey = key
+      .trim()
+      .replace(/^"(.*)"$/, '$1')
+      .replace(/\\n/g, '\n');
+
+    const serviceAccountAuth = new JWT({
+      email: email.trim(),
+      key: formattedKey,
+      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+    });
+
+    const doc = new GoogleSpreadsheet(sheetId.trim(), serviceAccountAuth);
+
+    await doc.loadInfo();
+    const placesSheet = doc.sheetsByIndex[0];
+    const markersSheet = doc.sheetsByIndex[1];
+    const hotelsSheet = doc.sheetsByIndex[2];
+
+    if (req.method === 'GET') {
+      const [placesRows, markersRows, hotelsRows] = await Promise.all([
+        placesSheet ? placesSheet.getRows() : Promise.resolve([]),
+        markersSheet ? markersSheet.getRows() : Promise.resolve([]),
+        hotelsSheet ? hotelsSheet.getRows() : Promise.resolve([])
+      ]);
+
+      const places = (placesRows || []).map(row => ({
+        id: row.get('id') || '',
+        category: row.get('category') || 'Other',
+        name: row.get('name') || 'Untitled',
+        address: row.get('address') || '',
+        lat: parseFloat(row.get('lat')) || 0,
+        lng: parseFloat(row.get('lng')) || 0,
+        status: row.get('status') || 'To Do',
+        notes: row.get('notes') || '',
+        rating: row.get('rating') || '',
+        scope: row.get('scope') || 'Austin',
+        return: row.get('return') || '',
+      }));
+
+      const markers = (markersRows || []).map(row => ({
+        id: row.get('id') || '',
+        type: row.get('type') || 'pin',
+        name: row.get('name') || 'Untitled',
+        address: row.get('address') || '',
+        lat: parseFloat(row.get('lat')) || 0,
+        lng: parseFloat(row.get('lng')) || 0,
+        notes: row.get('notes') || '',
+        scope: row.get('scope') || 'Austin',
+      }));
+
+      const hotels = (hotelsRows || []).map(row => ({
+        id: row.get('id') || '',
+        name: row.get('name') || 'Untitled',
+        address: row.get('address') || '',
+        lat: parseFloat(row.get('lat')) || 0,
+        lng: parseFloat(row.get('lng')) || 0,
+        status: row.get('status') || 'To Do',
+        notes: row.get('notes') || '',
+        rating: row.get('rating') || '',
+        scope: row.get('scope') || 'Austin',
+        return: row.get('return') || '',
+      }));
+
+      return res.status(200).json({ places, markers, hotels });
+    }
+
+    if (req.method === 'POST') {
+      const { id, status, rating, notes, name, category, address, lat, lng, scope, return: returnFlag, type = 'place' } = req.body;
+      const targetSheet = type === 'hotel' ? hotelsSheet : placesSheet;
+      
+      if (!targetSheet) return res.status(404).json({ error: 'Sheet not found' });
+      
+      const rows = await targetSheet.getRows();
+      
+      if (id) {
+        const row = rows.find(r => r.get('id') === id);
+        if (row) {
+          if (status !== undefined) row.set('status', status);
+          if (rating !== undefined) row.set('rating', rating);
+          if (notes !== undefined) row.set('notes', notes);
+          if (scope !== undefined) row.set('scope', scope);
+          if (returnFlag !== undefined) row.set('return', returnFlag ? 'TRUE' : 'FALSE');
+          await row.save();
+          return res.status(200).json({ success: true });
+        }
+        return res.status(404).json({ error: 'Item not found' });
+      }
+
+      const newId = Math.random().toString(36).substr(2, 9);
+      if (type === 'hotel') {
+        await targetSheet.addRow({
+          id: newId,
+          name: name || 'New Hotel',
+          address: address || '',
+          lat: lat || 0,
+          lng: lng || 0,
+          status: 'To Do',
+          notes: notes || '',
+          rating: '',
+          scope: scope || 'Austin',
+          return: ''
+        });
+      } else {
+        await targetSheet.addRow({
+          id: newId,
+          category: category || 'Other',
+          name: name || 'New Place',
+          address: address || '',
+          lat: lat || 0,
+          lng: lng || 0,
+          status: 'To Do',
+          notes: notes || '',
+          rating: '',
+          scope: scope || 'Austin',
+          return: ''
+        });
+      }
+      return res.status(200).json({ success: true, id: newId });
+    }
+
+    return res.status(405).json({ error: 'Method not allowed' });
+  } catch (error) {
+    console.error('API Error:', error);
+    return res.status(500).json({ 
+      error: error.message || 'Unknown Google API Error',
+      details: typeof error === 'object' ? JSON.stringify(error) : String(error)
+    });
+  }
+}
