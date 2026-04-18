@@ -6,6 +6,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
   const key = process.env.GOOGLE_PRIVATE_KEY;
   const sheetId = process.env.SHEET_ID;
+  const password = process.env.PASSWORD;
+
+  // 1. Check for PASSWORD in environment
+  if (!password) {
+    return res.status(500).json({ error: 'Server configuration error: PASSWORD not set.' });
+  }
+
+  // 2. Check for Authorization header
+  const authHeader = req.headers.authorization;
+  if (authHeader !== password) {
+    return res.status(401).json({ error: 'Unauthorized: Incorrect password provided.' });
+  }
 
   if (!email || !key || !sheetId) {
     return res.status(500).json({ 

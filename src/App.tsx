@@ -3,7 +3,7 @@ import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { renderToStaticMarkup } from 'react-dom/server';
 import 'leaflet/dist/leaflet.css';
-import { CheckCircle2, Circle, Map as MapIcon, List, Filter, Home, Briefcase, MapPin, Search, Star, X, Plus, Save, Loader2, Bed, RotateCcw } from 'lucide-react';
+import { CheckCircle2, Circle, Map as MapIcon, List, Filter, Home, Briefcase, MapPin, Search, Star, X, Plus, Save, Loader2, Bed, RotateCcw, Lock, LogIn } from 'lucide-react';
 
 // Fix for default marker icons
 import markerIcon from 'leaflet/dist/images/marker-icon.png';
@@ -119,6 +119,11 @@ const App = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [mapTarget, setMapTarget] = useState<any>(null);
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
+  
+  // Auth state
+  const [appPassword, setAppPassword] = useState<string | null>(localStorage.getItem('todo_tracker_pw'));
+  const [pwInput, setPwInput] = useState('');
+  const [isAuthError, setIsAuthError] = useState(false);
 
   // Search state
   const [searchQuery, setSearchQuery] = useState('');
@@ -139,9 +144,24 @@ const App = () => {
   }, [view]);
 
   useEffect(() => {
+    if (!appPassword) {
+      setIsLoading(false);
+      return;
+    }
+
     setIsLoading(true);
-    fetch('/api/places')
+    fetch('/api/places', {
+      headers: {
+        'Authorization': appPassword
+      }
+    })
       .then(res => {
+        if (res.status === 401) {
+          localStorage.removeItem('todo_tracker_pw');
+          setAppPassword(null);
+          setIsAuthError(true);
+          throw new Error('Unauthorized');
+        }
         if (!res.ok) return res.json().then(err => { 
           const msg = err.error + (err.details ? ': ' + err.details : '');
           throw new Error(msg || 'Failed to fetch');
@@ -152,15 +172,25 @@ const App = () => {
         setPlaces(data.places || []);
         setMarkers(data.markers || []);
         setHotels(data.hotels || []);
+        setIsAuthError(false);
       })
       .catch(err => {
-        console.error("Error fetching data:", err);
-        setError(err.message);
+        if (err.message !== 'Unauthorized') {
+          console.error("Error fetching data:", err);
+          setError(err.message);
+        }
       })
       .finally(() => {
         setIsLoading(false);
       });
-  }, []);
+  }, [appPassword]);
+
+  const handleAuth = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!pwInput) return;
+    localStorage.setItem('todo_tracker_pw', pwInput);
+    setAppPassword(pwInput);
+  };
 
   const centerOnMap = (lat: any, lng: any) => {
     const nLat = parseFloat(lat);
@@ -211,7 +241,10 @@ const App = () => {
     try {
       const response = await fetch('/api/places', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': appPassword || ''
+        },
         body: JSON.stringify({ id, type, ...data }),
       });
       if (!response.ok) throw new Error('Failed to update');
@@ -267,7 +300,10 @@ const App = () => {
     try {
       const response = await fetch('/api/places', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': appPassword || ''
+        },
         body: JSON.stringify(newEntry),
       });
       const data = await response.json();
@@ -354,7 +390,7 @@ const App = () => {
       {[1, 2, 3, 4, 5].map(star => (
         <button
           key={star}
-          onClick={() => onChange(star.toString())}
+          onClick={(e) => { e.stopPropagation(); onChange(star.toString()); }}
           className={`transition-colors ${parseInt(rating) >= star ? 'text-yellow-400' : 'text-slate-300 hover:text-yellow-400'}`}
         >
           <Star size={18} strokeWidth={2.5} fill={parseInt(rating) >= star ? 'currentColor' : 'none'} />
@@ -363,8 +399,51 @@ const App = () => {
     </div>
   );
 
+  // Render Login Screen if no password
+  if (!appPassword) {
+    return (
+      <div className="h-screen w-full bg-slate-50 flex items-center justify-center p-4">
+        <div className="bg-white p-8 rounded-3xl shadow-xl w-full max-w-md space-y-6 border border-slate-100">
+          <div className="flex flex-col items-center gap-4 text-center">
+            <div className="w-16 h-16 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600">
+              <Lock size={32} />
+            </div>
+            <div className="space-y-1">
+              <h1 className="text-2xl font-bold text-slate-900">Protected Area</h1>
+              <p className="text-slate-500">Please enter your tracker password to continue.</p>
+            </div>
+          </div>
+          
+          <form onSubmit={handleAuth} className="space-y-4">
+            <div className="space-y-1">
+              <input
+                type="password"
+                value={pwInput}
+                onChange={(e) => setPwInput(e.target.value)}
+                placeholder="Enter Password"
+                className={`w-full px-4 py-3 bg-slate-50 border rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all ${
+                  isAuthError ? 'border-red-300 bg-red-50' : 'border-slate-200'
+                }`}
+                autoFocus
+              />
+              {isAuthError && <p className="text-xs text-red-500 font-medium pl-1">Incorrect password, try again.</p>}
+            </div>
+            <button
+              type="submit"
+              className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+            >
+              <LogIn size={20} />
+              Unlock Tracker
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={`flex flex-col h-screen bg-slate-50 font-sans text-slate-900 ${isResizing ? 'cursor-col-resize select-none' : ''}`}>
+      {/* Header */}
       <header className="p-3 sm:p-4 bg-white border-b flex flex-col gap-3 shrink-0 z-10">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3 sm:gap-4">
@@ -388,6 +467,7 @@ const App = () => {
           </div>
         </div>
 
+        {/* Filter Bar */}
         <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1 sm:pb-0">
           <Filter size={16} className="text-slate-400 shrink-0" />
           {categories.map(cat => (
@@ -419,6 +499,7 @@ const App = () => {
           }}
           className={`overflow-y-auto p-3 sm:p-4 space-y-6 shrink-0 ${view === 'map' ? 'hidden sm:block sm:!w-0' : 'block'}`}
         >
+          {/* Add New Place Search - Visible only in list view on mobile */}
           <section className="space-y-3">
             <h2 className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-widest px-1">Add New Place</h2>
             <form onSubmit={handleSearch} className="relative">
@@ -489,6 +570,7 @@ const App = () => {
             )}
           </section>
 
+          {/* Saved Locations */}
           {filter === 'Saved' && (
             <section className="space-y-3">
               <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest px-1">Key Locations</h2>
@@ -523,6 +605,7 @@ const App = () => {
             </section>
           )}
 
+          {/* Places List */}
           {filter !== 'Saved' && (
             <section className="space-y-6">
               <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest px-1">
@@ -530,6 +613,7 @@ const App = () => {
               </h2>
               <div className="space-y-4">
                 {isLoading ? (
+                  // Loading Skeletons
                   [1, 2, 3].map(i => (
                     <div key={i} className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex flex-col gap-3 animate-pulse">
                       <div className="flex justify-between items-center">
@@ -563,7 +647,7 @@ const App = () => {
                                 <p className="text-sm text-slate-500 truncate">{item.address}</p>
                               </div>
                               <button 
-                                onClick={() => updatePlace(item.id, { status: item.status === 'Visited' ? 'To Do' : 'Visited' }, item.type)}
+                                onClick={(e) => { e.stopPropagation(); updatePlace(item.id, { status: item.status === 'Visited' ? 'To Do' : 'Visited' }, item.type); }}
                                 className={`p-2 rounded-full transition-colors shrink-0 ${item.status === 'Visited' ? 'text-green-500 bg-green-50' : 'text-slate-300 hover:text-indigo-500 hover:bg-indigo-50'}`}
                               >
                                 {item.status === 'Visited' ? <CheckCircle2 size={28} /> : <Circle size={28} />}
@@ -580,7 +664,7 @@ const App = () => {
                                   />
                                 </div>
                                 <button
-                                  onClick={() => updatePlace(item.id, { return: !(item.return === 'TRUE' || item.return === true) }, item.type)}
+                                  onClick={(e) => { e.stopPropagation(); updatePlace(item.id, { return: !(item.return === 'TRUE' || item.return === true) }, item.type); }}
                                   className={`flex flex-col items-center gap-1 p-2 rounded-lg transition-all ${
                                     (item.return === 'TRUE' || item.return === true) 
                                       ? 'bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100' 
@@ -595,6 +679,7 @@ const App = () => {
                                 <textarea
                                   placeholder={item.type === 'hotel' ? 'Notes about your stay...' : 'Add your thoughts here...'}
                                   defaultValue={item.notes}
+                                  onClick={(e) => e.stopPropagation()}
                                   onBlur={(e) => {
                                     if (e.target.value !== item.notes) {
                                       updatePlace(item.id, { notes: e.target.value }, item.type);
@@ -629,7 +714,7 @@ const App = () => {
                             <p className="text-sm text-slate-500 truncate">{hotel.address}</p>
                           </div>
                           <button 
-                            onClick={() => updatePlace(hotel.id, { status: hotel.status === 'Visited' ? 'To Do' : 'Visited' }, 'hotel')}
+                            onClick={(e) => { e.stopPropagation(); updatePlace(hotel.id, { status: hotel.status === 'Visited' ? 'To Do' : 'Visited' }, 'hotel'); }}
                             className={`p-2 rounded-full transition-colors shrink-0 ${hotel.status === 'Visited' ? 'text-green-500 bg-green-50' : 'text-slate-300 hover:text-indigo-500 hover:bg-indigo-50'}`}
                           >
                             {hotel.status === 'Visited' ? <CheckCircle2 size={28} /> : <Circle size={28} />}
@@ -653,7 +738,7 @@ const App = () => {
                             <p className="text-sm text-slate-500 truncate">{place.address}</p>
                           </div>
                           <button 
-                            onClick={() => updatePlace(place.id, { status: place.status === 'Visited' ? 'To Do' : 'Visited' })}
+                            onClick={(e) => { e.stopPropagation(); updatePlace(place.id, { status: place.status === 'Visited' ? 'To Do' : 'Visited' }); }}
                             className={`p-2 rounded-full transition-colors shrink-0 ${place.status === 'Visited' ? 'text-green-500 bg-green-50' : 'text-slate-300 hover:text-indigo-500 hover:bg-indigo-50'}`}
                           >
                             {place.status === 'Visited' ? <CheckCircle2 size={28} /> : <Circle size={28} />}
