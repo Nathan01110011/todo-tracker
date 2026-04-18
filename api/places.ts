@@ -16,6 +16,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // 2. Check for Authorization header
   const authHeader = req.headers.authorization;
   if (authHeader !== password) {
+    // Artificial delay to deter brute force
+    await new Promise(resolve => setTimeout(resolve, 1500));
     return res.status(401).json({ error: 'Unauthorized: Incorrect password provided.' });
   }
 
@@ -64,6 +66,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         rating: row.get('rating') || '',
         scope: row.get('scope') || 'Austin',
         return: row.get('return') || '',
+        details: row.get('details') || '',
       }));
 
       const markers = (markersRows || []).map(row => ({
@@ -75,6 +78,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         lng: parseFloat(row.get('lng')) || 0,
         notes: row.get('notes') || '',
         scope: row.get('scope') || 'Austin',
+        return: row.get('return') || '',
       }));
 
       const hotels = (hotelsRows || []).map(row => ({
@@ -94,7 +98,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (req.method === 'POST') {
-      const { id, status, rating, notes, name, category, address, lat, lng, scope, return: returnFlag, type = 'place' } = req.body;
+      const { id, status, rating, notes, name, category, address, lat, lng, scope, return: returnFlag, details, type = 'place' } = req.body;
       const targetSheet = type === 'hotel' ? hotelsSheet : placesSheet;
       
       if (!targetSheet) return res.status(404).json({ error: 'Sheet not found' });
@@ -109,6 +113,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           if (notes !== undefined) row.set('notes', notes);
           if (scope !== undefined) row.set('scope', scope);
           if (returnFlag !== undefined) row.set('return', returnFlag ? 'TRUE' : 'FALSE');
+          if (details !== undefined) row.set('details', details);
           await row.save();
           return res.status(200).json({ success: true });
         }
@@ -141,7 +146,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           notes: notes || '',
           rating: '',
           scope: scope || 'Austin',
-          return: ''
+          return: '',
+          details: details || ''
         });
       }
       return res.status(200).json({ success: true, id: newId });

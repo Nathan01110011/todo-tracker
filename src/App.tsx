@@ -3,7 +3,7 @@ import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { renderToStaticMarkup } from 'react-dom/server';
 import 'leaflet/dist/leaflet.css';
-import { CheckCircle2, Circle, Map as MapIcon, List, Filter, Home, Briefcase, MapPin, Search, Star, X, Plus, Save, Loader2, Bed, RotateCcw, Lock, LogIn } from 'lucide-react';
+import { CheckCircle2, Circle, Map as MapIcon, List, Filter, Home, Briefcase, MapPin, Search, Star, X, Plus, Save, Loader2, Bed, RotateCcw, Lock, LogIn, Info, Trophy } from 'lucide-react';
 
 // Fix for default marker icons
 import markerIcon from 'leaflet/dist/images/marker-icon.png';
@@ -49,6 +49,7 @@ interface Place {
   scope: string;
   return?: string | boolean;
   type?: 'place' | 'hotel';
+  details?: string;
 }
 
 interface MarkerData {
@@ -124,6 +125,21 @@ const App = () => {
   const [appPassword, setAppPassword] = useState<string | null>(localStorage.getItem('todo_tracker_pw'));
   const [pwInput, setPwInput] = useState('');
   const [isAuthError, setIsAuthError] = useState(false);
+  const [lockoutUntil, setLockoutUntil] = useState<number | null>(null);
+  const [countdown, setCountdown] = useState(0);
+
+  // Lockout countdown timer
+  useEffect(() => {
+    if (!lockoutUntil) return;
+    
+    const interval = setInterval(() => {
+      const remaining = Math.max(0, Math.ceil((lockoutUntil - Date.now()) / 1000));
+      setCountdown(remaining);
+      if (remaining === 0) setLockoutUntil(null);
+    }, 1000);
+    
+    return () => clearInterval(interval);
+  }, [lockoutUntil]);
 
   // Search state
   const [searchQuery, setSearchQuery] = useState('');
@@ -131,6 +147,8 @@ const App = () => {
   const [isSearching, setIsSearching] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const [pendingPlace, setPendingPlace] = useState<any>(null);
+  const [pendingName, setPendingName] = useState('');
+  const [pendingDetails, setPendingDetails] = useState('');
 
   useEffect(() => {
     const handleResize = () => {
@@ -160,6 +178,7 @@ const App = () => {
           localStorage.removeItem('todo_tracker_pw');
           setAppPassword(null);
           setIsAuthError(true);
+          setLockoutUntil(Date.now() + 30000); // 30 second lockout
           throw new Error('Unauthorized');
         }
         if (!res.ok) return res.json().then(err => { 
@@ -285,7 +304,7 @@ const App = () => {
     setIsAdding(true);
     const isHotel = category === 'Hotels';
     const newEntry: any = {
-      name: pendingPlace.display_name.split(',')[0],
+      name: pendingName || pendingPlace.display_name.split(',')[0],
       address: pendingPlace.display_name.split(',').slice(1).join(',').trim(),
       lat: parseFloat(pendingPlace.lat),
       lng: parseFloat(pendingPlace.lon),
@@ -294,7 +313,8 @@ const App = () => {
       notes: '',
       rating: '',
       scope: activeScope,
-      type: isHotel ? 'hotel' : 'place'
+      type: isHotel ? 'hotel' : 'place',
+      details: pendingDetails
     };
 
     try {
@@ -314,6 +334,8 @@ const App = () => {
           setPlaces([...places, { ...newEntry, id: data.id }]);
         }
         setPendingPlace(null);
+        setPendingName('');
+        setPendingDetails('');
         setSearchQuery('');
         setSearchResults([]);
         setFilter(isHotel ? 'Hotels' : 'All');
@@ -326,7 +348,7 @@ const App = () => {
     }
   };
 
-  const categories = ['All', 'Food', 'Drinks', 'Activities', 'Hotels', 'Saved', 'Visited'];
+  const categories = ['All', 'Food', 'Drinks', 'Activities', 'Sport', 'Hotels', 'Saved', 'Visited'];
 
   const filteredPlaces = useMemo(() => {
     if (filter === 'Hotels' || filter === 'Saved') return [];
@@ -405,12 +427,16 @@ const App = () => {
       <div className="h-screen w-full bg-slate-50 flex items-center justify-center p-4">
         <div className="bg-white p-8 rounded-3xl shadow-xl w-full max-w-md space-y-6 border border-slate-100">
           <div className="flex flex-col items-center gap-4 text-center">
-            <div className="w-16 h-16 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600">
-              <Lock size={32} />
+            <div className={`w-16 h-16 rounded-2xl flex items-center justify-center transition-colors ${lockoutUntil ? 'bg-red-50 text-red-600' : 'bg-indigo-50 text-indigo-600'}`}>
+              {lockoutUntil ? <X size={32} /> : <Lock size={32} />}
             </div>
             <div className="space-y-1">
-              <h1 className="text-2xl font-bold text-slate-900">Protected Area</h1>
-              <p className="text-slate-500">Please enter your tracker password to continue.</p>
+              <h1 className="text-2xl font-bold text-slate-900">{lockoutUntil ? 'Temporarily Locked' : 'Protected Area'}</h1>
+              <p className="text-slate-500">
+                {lockoutUntil 
+                  ? `Too many failed attempts. Please wait ${countdown} seconds.` 
+                  : 'Please enter your tracker password to continue.'}
+              </p>
             </div>
           </div>
           
@@ -418,22 +444,32 @@ const App = () => {
             <div className="space-y-1">
               <input
                 type="password"
+                disabled={!!lockoutUntil}
                 value={pwInput}
                 onChange={(e) => setPwInput(e.target.value)}
-                placeholder="Enter Password"
+                placeholder={lockoutUntil ? 'Locked' : 'Enter Password'}
                 className={`w-full px-4 py-3 bg-slate-50 border rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all ${
                   isAuthError ? 'border-red-300 bg-red-50' : 'border-slate-200'
-                }`}
+                } ${lockoutUntil ? 'opacity-50 cursor-not-allowed' : ''}`}
                 autoFocus
               />
-              {isAuthError && <p className="text-xs text-red-500 font-medium pl-1">Incorrect password, try again.</p>}
+              {isAuthError && !lockoutUntil && <p className="text-xs text-red-500 font-medium pl-1">Incorrect password, try again.</p>}
             </div>
             <button
               type="submit"
-              className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+              disabled={!!lockoutUntil}
+              className={`w-full py-3 rounded-xl font-bold active:scale-[0.98] transition-all flex items-center justify-center gap-2 ${
+                lockoutUntil 
+                  ? 'bg-slate-200 text-slate-400 cursor-not-allowed' 
+                  : 'bg-indigo-600 text-white hover:bg-indigo-700'
+              }`}
             >
-              <LogIn size={20} />
-              Unlock Tracker
+              {lockoutUntil ? `Wait ${countdown}s` : (
+                <>
+                  <LogIn size={20} />
+                  Unlock Tracker
+                </>
+              )}
             </button>
           </form>
         </div>
@@ -497,7 +533,7 @@ const App = () => {
               ? (view === 'map' ? '0%' : '100%') 
               : (view === 'map' ? '0%' : `${sidebarWidth}%`) 
           }}
-          className={`overflow-y-auto p-3 sm:p-4 space-y-6 shrink-0 ${view === 'map' ? 'hidden sm:block sm:!w-0' : 'block'}`}
+          className={`overflow-y-auto p-3 sm:p-4 space-y-6 sm:space-y-4 shrink-0 ${view === 'map' ? 'hidden sm:block sm:!w-0' : 'block'}`}
         >
           {/* Add New Place Search - Visible only in list view on mobile */}
           <section className="space-y-3">
@@ -525,7 +561,10 @@ const App = () => {
                 {searchResults.map((result, i) => (
                   <button
                     key={i}
-                    onClick={() => setPendingPlace(result)}
+                    onClick={() => {
+                      setPendingPlace(result);
+                      setPendingName(result.display_name.split(',')[0]);
+                    }}
                     className="w-full text-left p-3 hover:bg-slate-50 transition-colors flex flex-col gap-0.5"
                   >
                     <span className="font-semibold text-sm line-clamp-1">{result.display_name.split(',')[0]}</span>
@@ -538,23 +577,45 @@ const App = () => {
             {pendingPlace && (
               <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
                 <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl animate-in zoom-in duration-200">
-                  <h3 className="text-lg font-bold mb-1">Add to TODO Tracker</h3>
-                  <p className="text-sm text-slate-500 mb-6">{pendingPlace.display_name.split(',')[0]}</p>
+                  <h3 className="text-lg font-bold mb-4">Add to TODO Tracker</h3>
                   
-                  <div className="space-y-2">
-                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Select Category</p>
-                    <div className="grid grid-cols-2 gap-2">
-                      {['Food', 'Drinks', 'Activities', 'Hotels', 'Other'].map(cat => (
-                        <button
-                          key={cat}
-                          disabled={isAdding}
-                          onClick={() => addPlace(cat)}
-                          className="px-4 py-3 bg-slate-50 hover:bg-indigo-600 hover:text-white disabled:hover:bg-slate-50 disabled:hover:text-slate-600 disabled:opacity-50 rounded-xl text-sm font-medium transition-all text-slate-600 border border-slate-100 flex items-center justify-center gap-2"
-                        >
-                          {isAdding && <Loader2 size={14} className="animate-spin" />}
-                          {cat}
-                        </button>
-                      ))}
+                  <div className="space-y-4 overflow-y-auto max-h-[70vh] px-1">
+                    <div className="space-y-1.5">
+                      <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Location Name</p>
+                      <input
+                        type="text"
+                        value={pendingName}
+                        onChange={(e) => setPendingName(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm font-semibold"
+                        placeholder="Customize name..."
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Extra Details (Optional)</p>
+                      <textarea
+                        value={pendingDetails}
+                        onChange={(e) => setPendingDetails(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm resize-none min-h-[60px]"
+                        placeholder="Why add this location?"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Select Category</p>
+                      <div className="grid grid-cols-2 gap-2">
+                        {['Food', 'Drinks', 'Activities', 'Sport', 'Hotels', 'Other'].map(cat => (
+                          <button
+                            key={cat}
+                            disabled={isAdding}
+                            onClick={() => addPlace(cat)}
+                            className="px-4 py-3 bg-slate-50 hover:bg-indigo-600 hover:text-white disabled:hover:bg-slate-50 disabled:hover:text-slate-600 disabled:opacity-50 rounded-xl text-sm font-medium transition-all text-slate-600 border border-slate-100 flex items-center justify-center gap-2"
+                          >
+                            {isAdding && <Loader2 size={14} className="animate-spin" />}
+                            {cat}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   </div>
                   {!isAdding && (
@@ -611,7 +672,7 @@ const App = () => {
               <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest px-1">
                 {filter === 'Hotels' ? 'Saved Hotels' : filter === 'Visited' ? 'Visited Locations' : 'Places to Visit'}
               </h2>
-              <div className="space-y-4">
+              <div className="space-y-4 sm:space-y-2">
                 {isLoading ? (
                   // Loading Skeletons
                   [1, 2, 3].map(i => (
@@ -639,12 +700,13 @@ const App = () => {
                                 centerOnMap(item.lat, item.lng);
                               }
                             }}
-                            className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex flex-col gap-3 group hover:border-indigo-200 transition-all cursor-pointer"
+                            className="bg-white p-4 sm:p-3 rounded-xl shadow-sm border border-slate-100 flex flex-col gap-3 sm:gap-2 group hover:border-indigo-200 transition-all cursor-pointer"
                           >
                             <div className="flex justify-between items-center">
                               <div className="min-w-0 pr-2">
-                                <h3 className="font-semibold text-lg truncate">{item.name}</h3>
-                                <p className="text-sm text-slate-500 truncate">{item.address}</p>
+                                <h3 className="font-semibold text-base sm:text-sm truncate">{item.name}</h3>
+                                {item.details && <p className="text-[10px] text-indigo-500 font-medium italic mt-0.5">{item.details}</p>}
+                                <p className="text-xs sm:text-[11px] text-slate-500 truncate mt-1">{item.address}</p>
                               </div>
                               <button 
                                 onClick={(e) => { e.stopPropagation(); updatePlace(item.id, { status: item.status === 'Visited' ? 'To Do' : 'Visited' }, item.type); }}
@@ -699,19 +761,20 @@ const App = () => {
                   ))
                 ) : (
                   <>
+                    {/* Render Hotels */}
                     {filteredHotels.map(hotel => (
                       <div 
                         key={hotel.id} 
                         onClick={(e) => {
                           if (!(e.target as HTMLElement).closest('button')) centerOnMap(hotel.lat, hotel.lng);
                         }}
-                        className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex flex-col gap-3 group hover:border-indigo-200 transition-all cursor-pointer"
+                        className="bg-white p-4 sm:p-3 rounded-xl shadow-sm border border-slate-100 flex flex-col gap-3 sm:gap-2 group hover:border-indigo-200 transition-all cursor-pointer"
                       >
                         <div className="flex justify-between items-center">
                           <div className="min-w-0 pr-2">
-                            <span className="text-xs font-bold uppercase tracking-wider text-indigo-400">Hotel</span>
-                            <h3 className="font-semibold text-lg truncate">{hotel.name}</h3>
-                            <p className="text-sm text-slate-500 truncate">{hotel.address}</p>
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-400">Hotel</span>
+                            <h3 className="font-semibold text-base sm:text-sm truncate">{hotel.name}</h3>
+                            <p className="text-xs sm:text-[11px] text-slate-500 truncate">{hotel.address}</p>
                           </div>
                           <button 
                             onClick={(e) => { e.stopPropagation(); updatePlace(hotel.id, { status: hotel.status === 'Visited' ? 'To Do' : 'Visited' }, 'hotel'); }}
@@ -723,19 +786,21 @@ const App = () => {
                       </div>
                     ))}
 
+                    {/* Render Places */}
                     {filteredPlaces.map(place => (
                       <div 
                         key={place.id} 
                         onClick={(e) => {
                           if (!(e.target as HTMLElement).closest('button')) centerOnMap(place.lat, place.lng);
                         }}
-                        className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex flex-col gap-3 group hover:border-indigo-200 transition-all cursor-pointer"
+                        className="bg-white p-4 sm:p-3 rounded-xl shadow-sm border border-slate-100 flex flex-col gap-3 sm:gap-2 group hover:border-indigo-200 transition-all cursor-pointer"
                       >
                         <div className="flex justify-between items-center">
                           <div className="min-w-0 pr-2">
-                            <span className="text-xs font-bold uppercase tracking-wider text-slate-400">{place.category}</span>
-                            <h3 className="font-semibold text-lg truncate">{place.name}</h3>
-                            <p className="text-sm text-slate-500 truncate">{place.address}</p>
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{place.category}</span>
+                            <h3 className="font-semibold text-base sm:text-sm truncate">{place.name}</h3>
+                            {place.details && <p className="text-[10px] text-indigo-500 font-medium italic mt-0.5 flex items-center gap-1"><Info size={12}/> {place.details}</p>}
+                            <p className="text-xs sm:text-[11px] text-slate-500 truncate mt-1">{place.address}</p>
                           </div>
                           <button 
                             onClick={(e) => { e.stopPropagation(); updatePlace(place.id, { status: place.status === 'Visited' ? 'To Do' : 'Visited' }); }}
