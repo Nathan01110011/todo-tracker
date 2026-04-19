@@ -10,6 +10,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "cloudinary": "^2.9.0",
+    "date-fns": "^4.1.0",
     "google-auth-library": "^10.6.2",
     "google-spreadsheet": "^4.1.4",
     "leaflet": "^1.9.4",
