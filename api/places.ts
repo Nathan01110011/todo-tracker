@@ -33,11 +33,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const doc = new GoogleSpreadsheet(sheetId.trim(), serviceAccountAuth);
     await doc.loadInfo();
     
-    const placesSheet = doc.sheetsByIndex[0];
-    const markersSheet = doc.sheetsByIndex[1];
-    const hotelsSheet = doc.sheetsByIndex[2];
-    const lockedSheet = doc.sheetsByIndex[3];
-    const photosSheet = doc.sheetsByIndex[4];
+    const placesSheet = doc.sheetsByTitle['Places'];
+    const markersSheet = doc.sheetsByTitle['Markers'];
+    const hotelsSheet = doc.sheetsByTitle['Hotels'];
+    const lockedSheet = doc.sheetsByTitle['Locked'];
+    const photosSheet = doc.sheetsByTitle['Photos'];
+    
+    let routesSheet = doc.sheetsByTitle['Routes'];
+    if (!routesSheet && req.method === 'POST' && req.body.type === 'route') {
+      routesSheet = await doc.addSheet({ title: 'Routes', headerValues: ['id', 'name', 'placeIds', 'scope'] });
+    }
 
     if (lockedSheet) {
       const lockRows = await lockedSheet.getRows();
@@ -53,11 +58,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (req.method === 'GET') {
-      const [placesRows, markersRows, hotelsRows, photoRows] = await Promise.all([
+      const [placesRows, markersRows, hotelsRows, photoRows, routeRows] = await Promise.all([
         placesSheet ? placesSheet.getRows() : Promise.resolve([]),
         markersSheet ? markersSheet.getRows() : Promise.resolve([]),
         hotelsSheet ? hotelsSheet.getRows() : Promise.resolve([]),
-        photosSheet ? photosSheet.getRows() : Promise.resolve([])
+        photosSheet ? photosSheet.getRows() : Promise.resolve([]),
+        routesSheet ? routesSheet.getRows() : Promise.resolve([])
       ]);
 
       const photoMap: Record<string, string[]> = {};
@@ -120,11 +126,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         };
       });
 
-      return res.status(200).json({ places, markers, hotels });
+      const routes = (routeRows || []).map(row => ({
+        id: row.get('id') || '',
+        name: row.get('name') || 'Untitled Route',
+        placeIds: (row.get('placeIds') || '').split(',').filter(Boolean),
+        scope: row.get('scope') || 'Austin',
+      }));
+
+      return res.status(200).json({ places, markers, hotels, routes });
     }
 
     if (req.method === 'POST') {
-      const { id, status, rating, notes, name, category, address, lat, lng, scope, return: returnFlag, details, photoUrl, date, type = 'place' } = req.body;
+      const { id, status, rating, notes, name, category, address, lat, lng, scope, return: returnFlag, details, photoUrl, date, type = 'place', placeIds } = req.body;
       
       if (photoUrl && id && photosSheet) {
         await photosSheet.addRow({
@@ -132,6 +145,30 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           url: photoUrl
         });
         return res.status(200).json({ success: true });
+      }
+
+      if (type === 'route') {
+        if (!routesSheet) return res.status(404).json({ error: 'Routes sheet not found' });
+        
+        if (id) {
+          // Handle deletion
+          const rows = await routesSheet.getRows();
+          const row = rows.find(r => r.get('id') === id);
+          if (row) {
+            await row.delete();
+            return res.status(200).json({ success: true });
+          }
+          return res.status(404).json({ error: 'Route not found' });
+        }
+
+        const newId = Math.random().toString(36).substr(2, 9);
+        await routesSheet.addRow({
+          id: newId,
+          name: name || 'New Route',
+          placeIds: (placeIds || []).join(','),
+          scope: scope || 'Austin'
+        });
+        return res.status(200).json({ success: true, id: newId });
       }
 
       const targetSheet = type === 'hotel' ? hotelsSheet : placesSheet;

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline } from 'react-leaflet';
 import L from 'leaflet';
 import { renderToStaticMarkup } from 'react-dom/server';
 import 'leaflet/dist/leaflet.css';
@@ -7,7 +7,8 @@ import {
   CheckCircle2, Circle, Map as MapIcon, List, Filter, Home, Briefcase, 
   MapPin, Search, Star, X, Plus, Save, Loader2, Bed, RotateCcw, 
   Lock, LogIn, Info, Trophy, Camera, Upload, Image as ImageIcon, 
-  Maximize2, ChevronLeft, ChevronRight, Calendar 
+  Maximize2, ChevronLeft, ChevronRight, Calendar, Route as RouteIcon,
+  Navigation, Trash2, CheckSquare
 } from 'lucide-react';
 import { 
   format, addMonths, subMonths, startOfMonth, endOfMonth, 
@@ -75,12 +76,30 @@ interface MarkerData {
   scope: string;
 }
 
+interface Route {
+  id: string;
+  name: string;
+  placeIds: string[];
+  scope: string;
+}
+
 // Map Controller Component
-const MapController = ({ center, zoom, sidebarWidth, windowWidth, view }: any) => {
+const MapController = ({ center, zoom, sidebarWidth, windowWidth, view, bounds }: any) => {
   const map = useMap();
   const lastCenterRef = useRef<string | null>(null);
+  const lastBoundsRef = useRef<string | null>(null);
   
   useEffect(() => {
+    if (bounds && Array.isArray(bounds) && bounds.length === 2) {
+      const boundsKey = JSON.stringify(bounds);
+      if (lastBoundsRef.current === boundsKey) return;
+      lastBoundsRef.current = boundsKey;
+      try {
+        map.fitBounds(bounds, { padding: [50, 50], maxZoom: 16, animate: true });
+      } catch (e) {}
+      return;
+    }
+
     if (!center || !Array.isArray(center) || center.length !== 2) return;
     const lat = parseFloat(center[0]);
     const lng = parseFloat(center[1]);
@@ -113,6 +132,39 @@ const MapController = ({ center, zoom, sidebarWidth, windowWidth, view }: any) =
   }, [map, sidebarWidth, windowWidth, view]);
 
   return null;
+};
+
+// Toast Component
+const Toast = ({ message, onClose }: { message: string, onClose: () => void }) => {
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      onClose();
+    }, 3000); // Toast disappears after 3 seconds
+    return () => clearTimeout(timer);
+  }, [onClose]);
+
+  if (!message) return null;
+
+  return (
+    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-5 py-3 rounded-xl shadow-lg z-[500] animate-in fade-in slide-in-from-bottom-2 duration-300">
+      <p className="text-sm font-medium">{message}</p>
+    </div>
+  );
+};
+
+// Confirmation Dialog Component
+const ConfirmationDialog = ({ message, onConfirm, onCancel }: { message: string, onConfirm: () => void, onCancel: () => void }) => {
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[600] flex items-center justify-center p-4">
+      <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm text-center animate-in zoom-in-90 duration-300">
+        <p className="text-lg font-semibold text-slate-800 mb-6">{message}</p>
+        <div className="flex gap-3 justify-center">
+          <button onClick={onCancel} className="px-5 py-2 rounded-lg text-slate-600 border border-slate-300 hover:bg-slate-50 transition-colors">Cancel</button>
+          <button onClick={onConfirm} className="px-5 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors">Confirm</button>
+        </div>
+      </div>
+    </div>
+  );
 };
 
 // Custom Date Picker Popover Component
@@ -232,7 +284,7 @@ const CustomDatePicker = ({ value, onChange }: { value: string, onChange: (date:
       )}
     </div>
   );
-};
+}; // Closing CustomDatePicker
 
 const Lightbox = ({ urls, initialIndex, onClose }: { urls: string[], initialIndex: number, onClose: () => void }) => {
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
@@ -313,7 +365,7 @@ const PhotoModal = ({ item, isOpen, onClose, onUpload, appPassword, onExpand }: 
       }
     } catch (err: any) {
       console.error("Secure upload process failed:", err);
-      alert(`Upload failed: ${err.message}`);
+      setToastMessage(`Upload failed: ${err.message}`);
     } finally {
       setUploadStatus(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -358,7 +410,15 @@ const App = () => {
   const [places, setPlaces] = useState<Place[]>([]);
   const [markers, setMarkers] = useState<MarkerData[]>([]);
   const [hotels, setHotels] = useState<Place[]>([]);
-  const [filter, setFilter] = useState('All');
+  const [routes, setRoutes] = useState<Route[]>([]);
+  const [isJourneyMode, setIsJourneyMode] = useState(false);
+  const [selectedJourneyPlaces, setSelectedJourneyPlaces] = useState<string[]>([]);
+  const [journeyName, setJourneyName] = useState('');
+  const [journeySortMode, setJourneySortMode] = useState<'shortest' | 'added'>('shortest');
+  const [activeRouteId, setActiveRouteId] = useState<string | null>(null);
+  const [journeyFilter, setJourneyFilter] = useState('All');
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [filter, setFilter] = useState('TODO');
   const [activeScope, setActiveScope] = useState('Austin');
   const [visitedFilter, setVisitedFilter] = useState('All');
   const [view, setView] = useState('split');
@@ -373,6 +433,8 @@ const App = () => {
   const [appPassword, setAppPassword] = useState<string | null>(localStorage.getItem('todo_tracker_pw'));
   const [pwInput, setPwInput] = useState('');
   const [isAuthError, setIsAuthError] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [confirmationDialog, setConfirmationDialog] = useState<any>(null);
   const [lockoutUntil, setLockoutUntil] = useState<number | null>(() => {
     const saved = localStorage.getItem('todo_tracker_lockout');
     return saved && parseInt(saved) > Date.now() ? parseInt(saved) : null;
@@ -394,6 +456,7 @@ const App = () => {
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
+  const [isSavingRoute, setIsSavingRoute] = useState(false);
   const [pendingPlace, setPendingPlace] = useState<any>(null);
   const [pendingName, setPendingName] = useState('');
   const [pendingDetails, setPendingDetails] = useState('');
@@ -416,7 +479,13 @@ const App = () => {
         if (!res.ok) return res.json().then(err => { throw new Error(err.error || 'Failed to fetch'); });
         return res.json();
       })
-      .then(data => { setPlaces(data.places || []); setMarkers(data.markers || []); setHotels(data.hotels || []); setIsAuthError(false); })
+      .then(data => { 
+        setPlaces(data.places || []); 
+        setMarkers(data.markers || []); 
+        setHotels(data.hotels || []); 
+        setRoutes(data.routes || []);
+        setIsAuthError(false); 
+      })
       .catch(err => { if (err.message !== 'Unauthorized' && err.message !== 'System Locked') setError(err.message); })
       .finally(() => setIsLoading(false));
   }, [appPassword, lockoutUntil === null]);
@@ -455,37 +524,270 @@ const App = () => {
         else setPlaces(prev => prev.map(p => p.id === item.id ? { ...p, photos: up(p.photos) } : p));
         setActivePhotoItem(prev => (prev && prev.id === item.id ? { ...prev, photos: up(prev.photos) } : prev));
       }
-    } catch (err) { alert("Photo linked failed."); }
+    } catch (err) { setToastMessage("Photo linked failed."); }
   };
 
-  const categories = ['All', 'Food', 'Drinks', 'Activities', 'Sport', 'Hotels', 'Saved', 'Visited'];
+  const getJourneyItems = (ids: string[]) => {
+    const allItems = [
+      ...places.map(p => ({ ...p, type: 'place' as const })), 
+      ...hotels.map(h => ({ ...h, type: 'hotel' as const })), 
+      ...markers.map(m => ({ ...m, type: 'marker' as const }))
+    ];
+
+    return ids.map(compositeId => {
+      const [type, id] = compositeId.includes(':') ? compositeId.split(':') : ['place', compositeId];
+      return allItems.find(item => item.id === id && item.type === type);
+    }).filter(Boolean) as any[];
+  };
+
+  const getJourneyId = (item: any) => `${item.type}:${item.id}`;
+
+  const getDistance = (a: any, b: any) => {
+    const toRadians = (value: number) => value * Math.PI / 180;
+    const earthRadiusKm = 6371;
+    const latDelta = toRadians(Number(b.lat) - Number(a.lat));
+    const lngDelta = toRadians(Number(b.lng) - Number(a.lng));
+    const latA = toRadians(Number(a.lat));
+    const latB = toRadians(Number(b.lat));
+    const h =
+      Math.sin(latDelta / 2) ** 2 +
+      Math.cos(latA) * Math.cos(latB) * Math.sin(lngDelta / 2) ** 2;
+    return 2 * earthRadiusKm * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+  };
+
+  const calculateOptimalPath = (ids: string[]) => {
+    if (ids.length < 3) return ids;
+
+    const selectedItems = getJourneyItems(ids);
+    
+    if (selectedItems.length < 2) return ids;
+
+    const result = [selectedItems[0]];
+    const unvisited = selectedItems.slice(1);
+
+    while (unvisited.length > 0) {
+      const current = result[result.length - 1];
+      let nearestIdx = 0;
+      let minDistance = Infinity;
+
+      for (let i = 0; i < unvisited.length; i++) {
+        const dist = getDistance(current, unvisited[i]);
+        if (dist < minDistance) {
+          minDistance = dist;
+          nearestIdx = i;
+        }
+      }
+
+      result.push(unvisited[nearestIdx]);
+      unvisited.splice(nearestIdx, 1);
+    }
+
+    let improved = result;
+    let didImprove = true;
+    let passes = 0;
+
+    while (didImprove && passes < 25) {
+      didImprove = false;
+      passes += 1;
+
+      for (let i = 1; i < improved.length - 1; i++) {
+        for (let j = i + 1; j < improved.length; j++) {
+          const currentDistance =
+            getDistance(improved[i - 1], improved[i]) +
+            (j < improved.length - 1 ? getDistance(improved[j], improved[j + 1]) : 0);
+          const swappedDistance =
+            getDistance(improved[i - 1], improved[j]) +
+            (j < improved.length - 1 ? getDistance(improved[i], improved[j + 1]) : 0);
+
+          if (swappedDistance < currentDistance) {
+            improved = [
+              ...improved.slice(0, i),
+              ...improved.slice(i, j + 1).reverse(),
+              ...improved.slice(j + 1)
+            ];
+            didImprove = true;
+          }
+        }
+      }
+    }
+
+    return improved.map(getJourneyId);
+  };
+
+  const getJourneyPathIds = (ids: string[]) => {
+    return journeySortMode === 'shortest' ? calculateOptimalPath(ids) : ids;
+  };
+
+  const toggleJourneyPlace = (id: string) => {
+    setSelectedJourneyPlaces(prev => 
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  const saveRoute = async () => {
+    if (!journeyName || selectedJourneyPlaces.length === 0) {
+      setToastMessage("Please enter a name and select at least one location.");
+      return;
+    }
+    setIsSavingRoute(true);
+    const optimizedIds = getJourneyPathIds(selectedJourneyPlaces);
+    try {
+      const res = await fetch('/api/places', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': appPassword || '' },
+        body: JSON.stringify({ type: 'route', name: journeyName, placeIds: optimizedIds, scope: activeScope })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setRoutes(prev => [...prev, { id: data.id, name: journeyName, placeIds: optimizedIds, scope: activeScope }]);
+        setIsJourneyMode(false);
+        setJourneyName('');
+        setSelectedJourneyPlaces([]);
+        setFilter('Journeys');
+        setActiveRouteId(data.id);
+        setToastMessage(`Route "${journeyName}" saved successfully!`);
+      } else {
+        setError(data.error || "Failed to save route.");
+      }
+    } catch (err: any) {
+      setError(err.message || "Failed to save route.");
+    } finally {
+      setIsSavingRoute(false);
+    }
+  };
+
+  const deleteRoute = async (id: string) => {
+    setConfirmationDialog({
+      message: "Are you sure you want to delete this journey?",
+      onConfirm: async () => {
+        setIsSavingRoute(true);
+        try {
+          const res = await fetch('/api/places', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': appPassword || '' },
+            body: JSON.stringify({ type: 'route', id })
+          });
+          if (res.ok) {
+            setRoutes(prev => prev.filter(r => r.id !== id));
+            if (activeRouteId === id) setActiveRouteId(null);
+            setToastMessage("Journey deleted successfully!");
+          } else {
+            setError("Failed to delete route.");
+          }
+        } catch (err) {
+          setError("Failed to delete route.");
+        } finally {
+          setIsSavingRoute(false);
+        }
+      },
+      onCancel: () => {}
+    });
+  };
+
+  const completeRoute = async (route: Route) => {
+    setConfirmationDialog({
+      message: `Mark all locations in journey "${route.name}" as Visited?`,
+      onConfirm: async () => {
+        const updates = route.placeIds.map(compositeId => {
+          const [type, id] = compositeId.split(':');
+          return updatePlace(id, { status: 'Visited' }, type as 'place' | 'hotel');
+        });
+
+        await Promise.all(updates);
+        setToastMessage(`Journey "${route.name}" completed!`);
+      },
+      onCancel: () => {}
+    });
+  };
+
+  const categories = ['TODO', 'Journeys', 'Food', 'Drinks', 'Activities', 'Sport', 'Hotels', 'Saved', 'Visited', 'All'];
   const effectiveSidebarWidth = useMemo(() => { if (windowWidth < 640) return view === 'map' ? 0 : 100; if (view === 'map') return 0; if (filter === 'Visited') return 66.66; return sidebarWidth; }, [windowWidth, view, filter, sidebarWidth]);
 
   const filteredMarkers = useMemo(() => markers.filter(m => m.scope === activeScope), [markers, activeScope]);
 
+  const currentRoutePoints = useMemo(() => {
+    let ids: string[] = [];
+    if (isJourneyMode) {
+      ids = getJourneyPathIds(selectedJourneyPlaces);
+    } else if (activeRouteId && filter === 'Journeys') {
+      const route = routes.find(r => r.id === activeRouteId);
+      if (route) ids = route.placeIds;
+    }
+    if (ids.length === 0) return [];
+    
+    return getJourneyItems(ids);
+  }, [isJourneyMode, selectedJourneyPlaces, activeRouteId, routes, places, hotels, markers, filter, journeySortMode]);
+
+  const hoveredItem = useMemo(() => {
+    if (!hoveredId) return null;
+    const [type, id] = hoveredId.split(':');
+    const allItems = [
+      ...places.map(p => ({ ...p, type: 'place' as const })), 
+      ...hotels.map(h => ({ ...h, type: 'hotel' as const })), 
+      ...markers.map(m => ({ ...m, type: 'marker' as const }))
+    ];
+    return allItems.find(item => item.id === id && item.type === type) || null;
+  }, [hoveredId, places, hotels, markers]);
+
+  useEffect(() => {
+    if (currentRoutePoints.length >= 2) {
+      const lats = currentRoutePoints.map(p => p.lat);
+      const lngs = currentRoutePoints.map(p => p.lng);
+      const bounds = [
+        [Math.min(...lats), Math.min(...lngs)],
+        [Math.max(...lats), Math.max(...lngs)]
+      ];
+      setMapTarget({ bounds });
+    }
+  }, [currentRoutePoints]);
+
   const filteredPlaces = useMemo(() => {
     const scopePlaces = places.filter(p => p.scope === activeScope);
+    if (isJourneyMode) {
+      if (journeyFilter === 'To Do') return scopePlaces.filter(p => p.status === 'To Do');
+      if (journeyFilter === 'Visited') return scopePlaces.filter(p => p.status === 'Visited');
+      return scopePlaces;
+    }
     if (filter === 'Visited') {
       let res = scopePlaces.filter(p => p.status === 'Visited');
       if (visitedFilter !== 'All') res = res.filter(p => p.category === visitedFilter);
       return res;
     }
-    if (filter === 'All') return scopePlaces.filter(p => p.status === 'To Do');
+    if (filter === 'TODO') return scopePlaces.filter(p => p.status === 'To Do');
+    if (filter === 'All') return scopePlaces;
+    if (filter === 'Journeys') {
+      if (!activeRouteId) return [];
+      const route = routes.find(r => r.id === activeRouteId);
+      if (!route) return [];
+      return scopePlaces.filter(p => route.placeIds.includes(p.id));
+    }
     if (filter === 'Hotels' || filter === 'Saved') return [];
     return scopePlaces.filter(p => p.category === filter && p.status === 'To Do');
-  }, [places, filter, activeScope, visitedFilter]);
+  }, [places, filter, activeScope, visitedFilter, isJourneyMode, journeyFilter, routes, activeRouteId]);
 
   const filteredHotels = useMemo(() => {
     const scopeHotels = hotels.filter(h => h.scope === activeScope);
+    if (isJourneyMode) {
+      if (journeyFilter === 'To Do') return scopeHotels.filter(h => h.status === 'To Do');
+      if (journeyFilter === 'Visited') return scopeHotels.filter(h => h.status === 'Visited');
+      return scopeHotels;
+    }
+    if (filter === 'Journeys') {
+      if (!activeRouteId) return [];
+      const route = routes.find(r => r.id === activeRouteId);
+      if (!route) return [];
+      return scopeHotels.filter(h => route.placeIds.includes(h.id));
+    }
     if (filter === 'Hotels') return scopeHotels.filter(h => h.status === 'To Do');
     if (filter === 'Visited') {
       let res = scopeHotels.filter(h => h.status === 'Visited');
       if (visitedFilter === 'All' || visitedFilter === 'Hotels') return res;
       return [];
     }
-    if (filter === 'All') return scopeHotels.filter(h => h.status === 'To Do');
+    if (filter === 'TODO') return scopeHotels.filter(h => h.status === 'To Do');
+    if (filter === 'All') return scopeHotels;
     return [];
-  }, [hotels, filter, activeScope, visitedFilter]);
+  }, [hotels, filter, activeScope, visitedFilter, isJourneyMode, journeyFilter, routes, activeRouteId]);
 
   const visitedGroups = useMemo(() => {
     if (filter !== 'Visited') return {};
@@ -503,10 +805,68 @@ const App = () => {
     return groups;
   }, [places, hotels, filter, activeScope, visitedFilter]);
 
-  const getMarkerIcon = (type: string) => {
-    if (type === 'home') return homeIcon;
-    if (type === 'office') return officeIcon;
-    return defaultPinIcon;
+  const getMarkerIcon = (type: string, id: string) => {
+    const compositeId = `marker:${id}`;
+    const isHovered = hoveredId === compositeId;
+    const color = isHovered ? '#f59e0b' : (type === 'home' ? '#4f46e5' : type === 'office' ? '#0891b2' : '#64748b');
+    const scale = isHovered ? 1.2 : 1;
+    const IconComponent = type === 'home' ? Home : type === 'office' ? Briefcase : MapPin;
+
+    return L.divIcon({
+      html: renderToStaticMarkup(
+        <div 
+          style={{ color, transform: `scale(${scale})` }} 
+          className="bg-white rounded-full shadow-lg border-2 border-current flex items-center justify-center w-[30px] h-[30px] transition-all duration-200"
+        >
+          <IconComponent size={18} strokeWidth={2.5} />
+        </div>
+      ),
+      className: 'custom-leaflet-icon',
+      iconSize: [30, 30],
+      iconAnchor: [15, 30],
+    });
+  };
+
+  const getHotelIcon = (id: string) => {
+    const compositeId = `hotel:${id}`;
+    const isHovered = hoveredId === compositeId;
+    const color = isHovered ? '#f59e0b' : '#8b5cf6';
+    const scale = isHovered ? 1.2 : 1;
+
+    return L.divIcon({
+      html: renderToStaticMarkup(
+        <div 
+          style={{ color, transform: `scale(${scale})` }} 
+          className="bg-white rounded-full shadow-lg border-2 border-current flex items-center justify-center w-[30px] h-[30px] transition-all duration-200"
+        >
+          <Bed size={18} strokeWidth={2.5} />
+        </div>
+      ),
+      className: 'custom-leaflet-icon',
+      iconSize: [30, 30],
+      iconAnchor: [15, 30],
+    });
+  };
+
+  const getPlaceIcon = (id: string) => {
+    const compositeId = `place:${id}`;
+    const isHovered = hoveredId === compositeId;
+    const color = isHovered ? '#f59e0b' : '#64748b';
+    const scale = isHovered ? 1.2 : 1;
+
+    return L.divIcon({
+      html: renderToStaticMarkup(
+        <div 
+          style={{ color, transform: `scale(${scale})` }} 
+          className="bg-white rounded-full shadow-lg border-2 border-current flex items-center justify-center w-[30px] h-[30px] transition-all duration-200"
+        >
+          <MapPin size={18} strokeWidth={2.5} />
+        </div>
+      ),
+      className: 'custom-leaflet-icon',
+      iconSize: [30, 30],
+      iconAnchor: [15, 30],
+    });
   };
 
   const StarRating = ({ rating, onChange }: { rating: string, onChange: (r: string) => void }) => (
@@ -535,6 +895,14 @@ const App = () => {
       <header className="p-3 sm:p-4 bg-white border-b flex flex-col gap-3 shrink-0 z-10">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3 sm:gap-4"><h1 className="text-lg sm:text-xl font-bold text-indigo-600">TODO Tracker</h1><div className="flex bg-slate-100 p-1 rounded-lg">{['Austin', 'USA'].map(scope => (<button key={scope} onClick={() => { setActiveScope(scope); setFilter('All'); }} className={`px-3 py-1 rounded-md text-xs sm:text-sm font-bold transition-all ${activeScope === scope ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}>{scope}</button>))}</div></div>
+          <button 
+            onClick={() => { setFilter('Journeys'); setIsJourneyMode(true); setSelectedJourneyPlaces([]); setJourneyName(''); setJourneySortMode('shortest'); setActiveRouteId(null); if (windowWidth < 640) setView('list'); }}
+            className="flex items-center gap-2 bg-indigo-600 text-white px-3 py-1.5 rounded-xl text-xs font-bold hover:bg-indigo-700 transition-all shadow-md active:scale-95"
+          >
+            <Navigation size={14} fill="currentColor" />
+            <span className="hidden sm:inline">New Journey</span>
+            <span className="sm:hidden">Journey</span>
+          </button>
         </div>
         <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
           <Filter size={16} className="text-slate-400 shrink-0" />{categories.map(cat => (<button key={cat} onClick={() => setFilter(cat)} className={`px-3 py-1.5 rounded-full text-xs sm:text-sm font-medium whitespace-nowrap transition-all ${filter === cat ? 'bg-indigo-600 text-white ring-2 ring-indigo-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>{cat}</button>))}
@@ -562,12 +930,227 @@ const App = () => {
               </div>
             )}
           </section>
-          {filter === 'Saved' ? (
-            <section className="space-y-3"><h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest px-1">Key Locations</h2><div className="grid grid-cols-1 gap-2">{markers.filter(m => m.scope === activeScope).map(m => (<div key={m.id} onClick={() => { const lat = parseFloat(m.lat as any); const lng = parseFloat(m.lng as any); if (!isNaN(lat)) { setMapTarget({ center: [lat, lng], zoom: 15 }); if (windowWidth < 640) setView('map'); } }} className="flex items-center gap-3 p-3 bg-indigo-50/50 rounded-lg border border-indigo-100 cursor-pointer hover:bg-indigo-50 transition-colors"><div className="text-indigo-600">{m.type === 'home' ? <Home size={20} /> : <Briefcase size={20} />}</div><div className="min-w-0"><h4 className="font-semibold text-sm truncate">{m.name}</h4><p className="text-xs text-slate-500 truncate">{m.address}</p></div></div>))}</div></section>
+          {filter === 'Journeys' ? (
+            <section className="space-y-6">
+              <div className="flex items-center justify-between px-1">
+                <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Saved Journeys</h2>
+                {!isJourneyMode && (
+                  <button 
+                    onClick={() => { setIsJourneyMode(true); setSelectedJourneyPlaces([]); setJourneyName(''); setJourneySortMode('shortest'); setActiveRouteId(null); setJourneyFilter('All'); }}
+                    className="flex items-center gap-1.5 text-[10px] font-black text-indigo-600 bg-indigo-50 px-2.5 py-1.5 rounded-lg hover:bg-indigo-100 transition-colors uppercase tracking-wider"
+                  >
+                    <Plus size={14} strokeWidth={3} /> New Journey
+                  </button>
+                )}
+              </div>
+              
+              {isJourneyMode && (
+                <div className="bg-indigo-600 p-4 rounded-2xl shadow-lg space-y-4 animate-in slide-in-from-top-4 duration-300">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-white font-bold text-sm flex items-center gap-2"><Navigation size={18} /> Creating Journey</h3>
+                    <button onClick={() => setIsJourneyMode(false)} className="text-white/70 hover:text-white"><X size={20} /></button>
+                  </div>
+                  <input 
+                    type="text" 
+                    value={journeyName} 
+                    onChange={(e) => setJourneyName(e.target.value)} 
+                    placeholder="Journey Name (e.g. Saturday Food Tour)"
+                    className="w-full px-3 py-2.5 bg-white/10 border border-white/20 rounded-xl text-white placeholder:text-white/50 outline-none focus:ring-2 focus:ring-white/30 text-sm"
+                  />
+                  <div className="flex gap-1.5 p-1 bg-white/10 rounded-xl">
+                    {['All', 'To Do', 'Visited'].map(cat => (
+                      <button 
+                        key={cat} 
+                        onClick={() => setJourneyFilter(cat)}
+                        className={`flex-1 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all ${journeyFilter === cat ? 'bg-white text-indigo-600 shadow-sm' : 'text-white/60 hover:text-white'}`}
+                      >
+                        {cat}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex gap-1.5 p-1 bg-white/10 rounded-xl">
+                    {[
+                      { id: 'shortest', label: 'Shortest distance' },
+                      { id: 'added', label: 'Order added' }
+                    ].map(option => (
+                      <button
+                        key={option.id}
+                        onClick={() => setJourneySortMode(option.id as 'shortest' | 'added')}
+                        className={`flex-1 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all ${journeySortMode === option.id ? 'bg-white text-indigo-600 shadow-sm' : 'text-white/60 hover:text-white'}`}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="space-y-2">
+                    <p className="text-white/70 text-[10px] font-bold uppercase tracking-widest">
+                      {journeySortMode === 'shortest' ? 'Start Point + Shortest Path' : 'Order Added'}: {selectedJourneyPlaces.length} points
+                    </p>
+                    {selectedJourneyPlaces.length === 0 && (
+                      <div className="bg-white/10 border border-white/15 rounded-xl p-3 text-white">
+                        <p className="text-xs font-black uppercase tracking-wider">Pick your start point first</p>
+                        <p className="text-[10px] text-white/60 mt-1 leading-snug">
+                          {journeySortMode === 'shortest'
+                            ? 'After that, each new stop is ordered into the shortest available route from your start.'
+                            : 'After that, stops stay in the exact order you add them.'}
+                        </p>
+                      </div>
+                    )}
+                    {currentRoutePoints.length > 0 && (
+                      <div className="max-h-40 overflow-y-auto space-y-1.5 pr-1 no-scrollbar">
+                        {currentRoutePoints.map((p, i) => (
+                          <div key={`${p.type}:${p.id}`} className={`flex items-center justify-between p-2 rounded-lg group/item ${i === 0 ? 'bg-white text-indigo-700 ring-2 ring-white/40' : 'bg-white/10'}`}>
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className={`text-[10px] font-black w-4 ${i === 0 ? 'text-indigo-300' : 'text-white/40'}`}>{i + 1}</span>
+                              <span className={`text-xs font-bold truncate ${i === 0 ? 'text-indigo-700' : 'text-white'}`}>{p.name}</span>
+                              {i === 0 && <span className="text-[8px] font-black uppercase tracking-widest bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full shrink-0">Start</span>}
+                            </div>
+                            <button 
+                              onClick={() => toggleJourneyPlace(`${p.type}:${p.id}`)}
+                              className={`transition-colors ${i === 0 ? 'text-indigo-300 hover:text-indigo-700' : 'text-white/30 hover:text-white'}`}
+                            >
+                              <X size={14} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div className="flex gap-2 pt-2">
+                      <button 
+                        onClick={saveRoute}
+                        disabled={selectedJourneyPlaces.length === 0 || !journeyName || isSavingRoute}
+                        className="flex-1 bg-white text-indigo-600 py-2 rounded-xl font-bold text-xs hover:bg-indigo-50 disabled:opacity-50 transition-all flex items-center justify-center gap-1"
+                      >
+                        {isSavingRoute ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Save Route
+                      </button>
+                    </div>
+                  </div>
+                  <p className="text-[9px] text-white/50 leading-tight">
+                    {journeySortMode === 'shortest'
+                      ? 'Your first selection stays as the start point. The remaining stops are ordered by shortest path.'
+                      : 'Your first selection stays as the start point. The remaining stops stay in the order you added them.'}
+                  </p>
+                </div>
+              )}
+
+              {isJourneyMode ? (
+                <div className="space-y-4 pt-4 border-t border-slate-100">
+                  <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Select Locations</h3>
+                  <div className="space-y-2">
+                    {[...filteredHotels.map(h => ({ ...h, category: 'Hotels', type: 'hotel' as const })), ...filteredPlaces.map(p => ({ ...p, type: 'place' as const }))].map(item => {
+                      const itemId = `${item.type}:${item.id}`;
+                      const isSelected = selectedJourneyPlaces.includes(itemId);
+                      const isStart = selectedJourneyPlaces[0] === itemId;
+                      return (
+                        <div 
+                          key={itemId} 
+                          onMouseEnter={() => setHoveredId(itemId)}
+                          onMouseLeave={() => setHoveredId(null)}
+                          onClick={() => toggleJourneyPlace(itemId)}
+                          className={`p-3 rounded-xl border transition-all cursor-pointer flex justify-between items-center group ${isStart ? 'bg-indigo-600 text-white border-indigo-600 ring-2 ring-indigo-200 shadow-md' : isSelected ? 'bg-indigo-50 border-indigo-300 ring-1 ring-indigo-200' : 'bg-white border-slate-100 hover:border-indigo-100'} ${hoveredId === itemId ? 'translate-x-1 shadow-sm' : ''}`}
+                        >
+                          <div className="min-w-0 pr-2">
+                            <div className="flex items-center gap-2">
+                              <span className={`text-[9px] font-bold uppercase ${isStart ? 'text-white/60' : 'text-slate-400'}`}>{item.category}</span>
+                              {isStart && <span className="text-[8px] font-black uppercase tracking-widest bg-white/15 text-white px-1.5 py-0.5 rounded-full">Start</span>}
+                            </div>
+                            <h4 className="font-semibold text-xs truncate">{item.name}</h4>
+                          </div>
+                          <div className={`transition-colors ${isStart ? 'text-white' : isSelected ? 'text-indigo-600' : 'text-slate-200'}`}>
+                            {isSelected ? <CheckCircle2 size={20} /> : <Circle size={20} />}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {routes.filter(r => r.scope === activeScope).map(route => (
+                    <div 
+                      key={route.id} 
+                      onClick={() => { setActiveRouteId(activeRouteId === route.id ? null : route.id); if (windowWidth < 640) setView('map'); }}
+                      className={`p-4 rounded-xl border transition-all cursor-pointer group ${activeRouteId === route.id ? 'bg-indigo-50 border-indigo-200 ring-1 ring-indigo-200 shadow-sm' : 'bg-white border-slate-100 hover:border-indigo-100'}`}
+                    >
+                      <div className="flex justify-between items-start">
+                        <div className="space-y-1">
+                          <h3 className="font-bold text-sm text-slate-900 group-hover:text-indigo-600 transition-colors">{route.name}</h3>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{route.placeIds.length} Destinations</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); completeRoute(route); }}
+                            className="p-1.5 text-slate-300 hover:text-green-600 hover:bg-green-50 rounded-lg transition-all"
+                            title="Complete Journey"
+                          >
+                            <CheckSquare size={18} />
+                          </button>
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); deleteRoute(route.id); }}
+                            className="p-1.5 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                            title="Delete Journey"
+                            disabled={isSavingRoute}
+                          >
+                            {isSavingRoute ? <Loader2 size={18} className="animate-spin" /> : <Trash2 size={18} />}
+                          </button>
+                          <RouteIcon size={20} className={activeRouteId === route.id ? 'text-indigo-600' : 'text-slate-300'} />
+                        </div>
+                      </div>
+                      {activeRouteId === route.id && (
+                        <div className="mt-4 pt-4 border-t border-indigo-100 space-y-3 animate-in fade-in duration-300">
+                          {currentRoutePoints.map((p, i) => (
+                            <div key={p.id} className="flex items-center gap-3">
+                              <div className="w-5 h-5 rounded-full bg-indigo-600 text-white text-[10px] font-black flex items-center justify-center shrink-0">{i + 1}</div>
+                              <div className="min-w-0">
+                                <p className="text-xs font-bold text-slate-700 truncate">{p.name}</p>
+                                <p className="text-[10px] text-slate-400 truncate">{p.address}</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  {routes.filter(r => r.scope === activeScope).length === 0 && (
+                    <div className="text-center py-10 text-slate-400">
+                      <RouteIcon size={32} className="mx-auto mb-3 opacity-20" />
+                      <p className="text-sm font-medium">No journeys saved yet.</p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </section>
+          ) : filter === 'Saved' ? (
+            <section className="space-y-3">
+              <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest px-1">Key Locations</h2>
+              <div className="grid grid-cols-1 gap-2">
+                {markers.filter(m => m.scope === activeScope).map(m => (
+                  <div 
+                    key={m.id} 
+                    onClick={() => { 
+                      if (isJourneyMode) { toggleJourneyPlace(m.id); return; }
+                      const lat = parseFloat(m.lat as any); const lng = parseFloat(m.lng as any); 
+                      if (!isNaN(lat)) { setMapTarget({ center: [lat, lng], zoom: 15 }); if (windowWidth < 640) setView('map'); } 
+                    }} 
+                    className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${isJourneyMode && selectedJourneyPlaces.includes(m.id) ? 'bg-indigo-50 border-indigo-500 ring-2 ring-indigo-200' : 'bg-indigo-50/50 border-indigo-100 hover:bg-indigo-50'}`}
+                  >
+                    <div className="text-indigo-600">
+                      {isJourneyMode && selectedJourneyPlaces.includes(m.id) ? <CheckCircle2 size={20} /> : (m.type === 'home' ? <Home size={20} /> : <Briefcase size={20} />)}
+                    </div>
+                    <div className="min-w-0">
+                      <h4 className="font-semibold text-sm truncate">{m.name}</h4>
+                      <p className="text-xs text-slate-500 truncate">{m.address}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
           ) : (
             <section className="space-y-6">
               <div className="space-y-4">
-                <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest px-1">{filter === 'Hotels' ? 'Hotels' : filter === 'Visited' ? 'Visited' : 'To Do'}</h2>
+                <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest px-1">
+                  {filter === 'Hotels' ? 'Hotels' : filter === 'Visited' ? 'Visited' : filter === 'All' ? 'All Locations' : 'To Do'}
+                </h2>
                 {filter === 'Visited' && (<div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1.5 px-1">{['All', 'Food', 'Drinks', 'Activities', 'Sport', 'Hotels', 'Other'].map(cat => (<button key={cat} onClick={() => setVisitedFilter(cat)} className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase transition-all whitespace-nowrap ${visitedFilter === cat ? 'bg-indigo-100 text-indigo-600 ring-2 ring-indigo-200' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}>{cat}</button>))}</div>)}
               </div>
               <div className="space-y-4 sm:space-y-2">
@@ -577,26 +1160,118 @@ const App = () => {
                       <h3 className="text-[10px] font-black text-indigo-300 uppercase tracking-[0.2em] px-1 pl-2 border-l-2 border-indigo-100">{cat}</h3>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-2">
                         {items.map((item: any) => (
-                          <div key={item.id} onClick={(e) => { if (!(e.target as HTMLElement).closest('button') && !(e.target as HTMLElement).closest('textarea')) { const lat = parseFloat(item.lat); const lng = parseFloat(item.lng); if (!isNaN(lat)) { setMapTarget({ center: [lat, lng], zoom: 15 }); if (windowWidth < 640) setView('map'); } } }} className="bg-white p-4 sm:p-3 rounded-xl shadow-sm border border-slate-100 flex flex-col gap-3 group hover:border-indigo-200 transition-all cursor-pointer">
-                            <div className="flex justify-between items-center"><div className="min-w-0 pr-2"><h3 className="font-semibold text-base md:text-sm truncate">{item.name}</h3>{item.details && <p className="text-xs md:text-[10px] text-indigo-500 font-medium italic mt-0.5">{item.details}</p>}<p className="text-sm md:text-[11px] text-slate-500 truncate mt-1">{item.address}</p></div><button onClick={(e) => { e.stopPropagation(); updatePlace(item.id, { status: 'To Do' }, item.type); }} className="p-2 rounded-full text-green-500 bg-green-50"><CheckCircle2 size={28} /></button></div>
-                            <div className="pt-3 border-t border-slate-50 space-y-4">
-                              <div className="flex flex-wrap items-end justify-between gap-3">
-                                <div className="space-y-1"><span className="text-xs font-bold text-slate-400 uppercase">Rating</span><StarRating rating={item.rating} onChange={(r) => updatePlace(item.id, { rating: r }, item.type)} /></div>
-                                <div className="flex-1 min-w-[140px] max-w-[180px]"><span className="text-[10px] font-bold text-slate-400 uppercase block mb-1 ml-1">Date Visited</span><CustomDatePicker value={item.date || ''} onChange={(d) => updatePlace(item.id, { date: d }, item.type)} /></div>
-                                <div className="flex items-center gap-1">
-                                  <button onClick={(e) => { e.stopPropagation(); setActivePhotoItem(item); }} className={`p-2 rounded-lg ${item.photos ? 'bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100' : 'text-slate-300 hover:text-indigo-500 hover:bg-indigo-50'}`}><Camera size={20} /></button>
-                                  <button onClick={(e) => { e.stopPropagation(); updatePlace(item.id, { return: !(item.return === 'TRUE' || item.return === true) }, item.type); }} className={`p-2 rounded-lg ${(item.return === 'TRUE' || item.return === true) ? 'bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100' : 'text-slate-300'}`}><RotateCcw size={20} /></button>
+                          <div 
+                            key={`${item.type}:${item.id}`} 
+                            onMouseEnter={() => setHoveredId(`${item.type}:${item.id}`)}
+                            onMouseLeave={() => setHoveredId(null)}
+                            onClick={(e) => { 
+                              if (isJourneyMode) { toggleJourneyPlace(`${item.type}:${item.id}`); return; }
+                              if (!(e.target as HTMLElement).closest('button') && !(e.target as HTMLElement).closest('textarea')) { 
+                                const lat = parseFloat(item.lat); const lng = parseFloat(item.lng); 
+                                if (!isNaN(lat)) { setMapTarget({ center: [lat, lng], zoom: 15 }); if (windowWidth < 640) setView('map'); } 
+                              } 
+                            }} 
+                            className={`p-4 sm:p-3 rounded-xl shadow-sm border transition-all cursor-pointer flex flex-col gap-3 group ${isJourneyMode && selectedJourneyPlaces.includes(`${item.type}:${item.id}`) ? 'bg-indigo-50 border-indigo-500 ring-2 ring-indigo-200' : 'bg-white border-slate-100 hover:border-indigo-200'} ${hoveredId === `${item.type}:${item.id}` ? 'translate-x-1 shadow-md border-indigo-200' : ''}`}
+                          >
+                            <div className="flex justify-between items-center">
+                              <div className="min-w-0 pr-2">
+                                <div className="flex items-center gap-2">
+                                  {isJourneyMode && selectedJourneyPlaces.includes(`${item.type}:${item.id}`) && (
+                                    <span className="bg-indigo-600 text-white text-[8px] font-black px-1.5 py-0.5 rounded-full uppercase tracking-widest">Selected</span>
+                                  )}
+                                  <h3 className={`font-semibold text-base md:text-sm truncate transition-colors ${hoveredId === `${item.type}:${item.id}` ? 'text-indigo-600' : ''}`}>{item.name}</h3>
                                 </div>
+                                {item.details && <p className="text-xs md:text-[10px] text-indigo-500 font-medium italic mt-0.5">{item.details}</p>}
+                                <p className="text-sm md:text-[11px] text-slate-500 truncate mt-1">{item.address}</p>
                               </div>
-                              <textarea placeholder="Notes..." defaultValue={item.notes} onClick={(e) => e.stopPropagation()} onBlur={(e) => { if (e.target.value !== item.notes) updatePlace(item.id, { notes: e.target.value }, item.type); }} className="w-full text-sm bg-slate-50 border-none rounded-lg p-3 outline-none focus:ring-2 focus:ring-indigo-500 transition-all h-20 resize-none" />
+                              {!isJourneyMode && (
+                                <button onClick={(e) => { e.stopPropagation(); updatePlace(item.id, { status: 'To Do' }, item.type); }} className="p-2 rounded-full text-green-500 bg-green-50"><CheckCircle2 size={28} /></button>
+                              )}
+                              {isJourneyMode && (
+                                <div className={`p-2 rounded-full transition-colors ${selectedJourneyPlaces.includes(`${item.type}:${item.id}`) ? 'text-indigo-600 bg-indigo-100' : 'text-slate-200'}`}>
+                                  {selectedJourneyPlaces.includes(`${item.type}:${item.id}`) ? <CheckCircle2 size={28} /> : <Circle size={28} />}
+                                </div>
+                              )}
                             </div>
+                            {!isJourneyMode && (
+                              <div className="pt-3 border-t border-slate-50 space-y-4">
+                                <div className="flex flex-wrap items-end justify-between gap-3">
+                                  <div className="space-y-1"><span className="text-xs font-bold text-slate-400 uppercase">Rating</span><StarRating rating={item.rating} onChange={(r) => updatePlace(item.id, { rating: r }, item.type)} /></div>
+                                  <div className="flex-1 min-w-[140px] max-w-[180px]"><span className="text-[10px] font-bold text-slate-400 uppercase block mb-1 ml-1">Date Visited</span><CustomDatePicker value={item.date || ''} onChange={(d) => updatePlace(item.id, { date: d }, item.type)} /></div>
+                                  <div className="flex items-center gap-1">
+                                    <button 
+                                      onClick={(e) => { e.stopPropagation(); setActivePhotoItem(item); }} 
+                                      className={`p-2 rounded-lg ${item.photos && item.photos.split(',').filter(Boolean).length > 0 ? 'bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100' : 'text-slate-300 hover:text-indigo-500 hover:bg-indigo-50'}`}
+                                    >
+                                      <Camera size={20} />
+                                    </button>
+                                    <button onClick={(e) => { e.stopPropagation(); updatePlace(item.id, { return: !(item.return === 'TRUE' || item.return === true) }, item.type); }} className={`p-2 rounded-lg ${(item.return === 'TRUE' || item.return === true) ? 'bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100' : 'text-slate-300'}`}><RotateCcw size={20} /></button>
+                                  </div>
+                                </div>
+                                <textarea placeholder="Notes..." defaultValue={item.notes} onClick={(e) => e.stopPropagation()} onBlur={(e) => { if (e.target.value !== item.notes) updatePlace(item.id, { notes: e.target.value }, item.type); }} className="w-full text-sm bg-slate-50 border-none rounded-lg p-3 outline-none focus:ring-2 focus:ring-indigo-500 transition-all h-20 resize-none" />
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>
                     </div>
                   ))
                 ) : (
-                  <>{[...hotels.filter(h => h.scope === activeScope && h.status === 'To Do' && (filter === 'All' || filter === 'Hotels')).map(h => ({ ...h, category: 'Hotels', type: 'hotel' as const })), ...places.filter(p => p.scope === activeScope && p.status === 'To Do' && (filter === 'All' || filter === p.category))].map(item => (<div key={item.id} onClick={() => { const lat = parseFloat(item.lat as any); const lng = parseFloat(item.lng as any); if (!isNaN(lat)) { setMapTarget({ center: [lat, lng], zoom: 15 }); if (windowWidth < 640) setView('map'); } }} className="bg-white p-4 sm:p-3 rounded-xl shadow-sm border border-slate-100 flex flex-col gap-3 group hover:border-indigo-200 transition-all cursor-pointer"><div className="flex justify-between items-center"><div className="min-w-0 pr-2"><span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{item.category}</span><h3 className="font-semibold text-base md:text-sm truncate">{item.name}</h3>{item.details && <p className="text-[10px] text-indigo-500 font-medium italic flex items-center gap-1"><Info size={12}/> {item.details}</p>}<p className="text-sm md:text-[11px] text-slate-500 truncate mt-1">{item.address}</p></div><button onClick={(e) => { e.stopPropagation(); updatePlace(item.id, { status: 'Visited' }, item.type); }} className="p-2 rounded-full text-slate-300 hover:text-indigo-500 hover:bg-indigo-50"><Circle size={28} /></button></div></div>))} {(places.length === 0 && hotels.length === 0) && <div className="text-center py-10 text-slate-400">Nothing here yet.</div>}</>
+                  <>{[...filteredHotels.map(h => ({ ...h, category: 'Hotels', type: 'hotel' as const })), ...filteredPlaces.map(p => ({ ...p, type: 'place' as const }))].map(item => (
+                    <div 
+                      key={`${item.type}:${item.id}`} 
+                      onMouseEnter={() => setHoveredId(`${item.type}:${item.id}`)}
+                      onMouseLeave={() => setHoveredId(null)}
+                      onClick={() => { 
+                        if (isJourneyMode) { toggleJourneyPlace(`${item.type}:${item.id}`); return; }
+                        const lat = parseFloat(item.lat as any); const lng = parseFloat(item.lng as any); 
+                        if (!isNaN(lat)) { setMapTarget({ center: [lat, lng], zoom: 15 }); if (windowWidth < 640) setView('map'); } 
+                      }} 
+                      className={`p-4 sm:p-3 rounded-xl shadow-sm border transition-all cursor-pointer flex flex-col gap-3 group ${isJourneyMode && selectedJourneyPlaces.includes(`${item.type}:${item.id}`) ? 'bg-indigo-50 border-indigo-500 ring-2 ring-indigo-200' : 'bg-white border-slate-100 hover:border-indigo-200'} ${hoveredId === `${item.type}:${item.id}` ? 'translate-x-1 shadow-md border-indigo-200' : ''}`}
+                    >
+                      <div className="flex justify-between items-center">
+                        <div className="min-w-0 pr-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{item.category}</span>
+                            {isJourneyMode && selectedJourneyPlaces.includes(`${item.type}:${item.id}`) && (
+                              <span className="bg-indigo-600 text-white text-[8px] font-black px-1.5 py-0.5 rounded-full uppercase tracking-widest">Selected</span>
+                            )}
+                          </div>
+                          <h3 className={`font-semibold text-base md:text-sm truncate transition-colors ${hoveredId === `${item.type}:${item.id}` ? 'text-indigo-600' : ''}`}>{item.name}</h3>
+                          {item.details && <p className="text-[10px] text-indigo-500 font-medium italic flex items-center gap-1"><Info size={12}/> {item.details}</p>}
+                          <p className="text-sm md:text-[11px] text-slate-500 truncate mt-1">{item.address}</p>
+                        </div>
+                        {!isJourneyMode && (
+                          <button 
+                            onClick={(e) => { 
+                              e.stopPropagation(); 
+                              const newStatus = item.status === 'Visited' ? 'To Do' : 'Visited';
+                              updatePlace(item.id, { status: newStatus }, item.type); 
+                            }} 
+                            className={`p-2 rounded-full transition-colors ${item.status === 'Visited' ? 'text-green-500 bg-green-50' : 'text-slate-300 hover:text-indigo-500 hover:bg-indigo-50'}`}
+                          >
+                            {item.status === 'Visited' ? <CheckCircle2 size={28} /> : <Circle size={28} />}
+                          </button>
+                        )}
+                        {isJourneyMode && (
+                          <div className={`p-2 rounded-full transition-colors ${selectedJourneyPlaces.includes(`${item.type}:${item.id}`) ? 'text-indigo-600 bg-indigo-100' : 'text-slate-200'}`}>
+                            {selectedJourneyPlaces.includes(`${item.type}:${item.id}`) ? <CheckCircle2 size={28} /> : <Circle size={28} />}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))} {(places.length === 0 && hotels.length === 0) && (
+                    <div className="flex items-center justify-center gap-2 py-10 text-indigo-600 text-sm font-semibold">
+                      {isLoading ? (
+                        <>
+                          <Loader2 size={18} className="animate-spin" />
+                          <span>Loading...</span>
+                        </>
+                      ) : (
+                        <span className="text-slate-400 font-normal">Nothing here yet.</span>
+                      )}
+                    </div>
+                  )}</>
                 )}
               </div>
             </section>
@@ -604,24 +1279,103 @@ const App = () => {
         </div>
         <div style={{ flex: 1 }} className={`bg-slate-200 relative ${view === 'list' ? 'hidden sm:block' : 'block'} min-w-0`}>
           {isLoading && (<div className="absolute inset-0 bg-slate-900/20 backdrop-blur-sm z-[20] flex items-center justify-center p-4"><div className="bg-white px-6 py-3 rounded-2xl shadow-xl flex items-center gap-3 text-indigo-600 font-bold text-sm"><Loader2 size={20} className="animate-spin" /><span>Loading...</span></div></div>)}
+          
+          {hoveredItem && (
+            <div className="absolute top-4 left-4 right-4 sm:left-auto sm:right-4 sm:w-80 bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl border border-indigo-100 z-[100] p-4 animate-in fade-in slide-in-from-top-2 duration-200 pointer-events-none">
+              <div className="flex justify-between items-start mb-2">
+                <div className="min-w-0">
+                  <span className="text-[9px] font-black uppercase tracking-widest text-indigo-500 mb-0.5 block">{hoveredItem.category || (hoveredItem as any).type}</span>
+                  <h3 className="font-bold text-sm text-slate-900 truncate">{(hoveredItem as any).name}</h3>
+                </div>
+                {(hoveredItem as any).status === 'Visited' && <CheckCircle2 size={16} className="text-green-500 shrink-0" />}
+              </div>
+              <p className="text-[10px] text-slate-500 mb-3 truncate">{(hoveredItem as any).address}</p>
+              {(hoveredItem as any).details && <p className="text-[10px] text-indigo-600 font-medium italic mb-3 bg-indigo-50/50 p-2 rounded-lg leading-relaxed">{(hoveredItem as any).details}</p>}
+              {(hoveredItem as any).photos && <div className="rounded-xl overflow-hidden mb-3 ring-1 ring-slate-100"><img src={(hoveredItem as any).photos.split(',')[0]} className="w-full h-32 object-cover" alt="" /></div>}
+              {(hoveredItem as any).rating && (
+                <div className="flex gap-0.5 text-yellow-500">
+                  {Array.from({ length: parseInt((hoveredItem as any).rating) }).map((_, i) => <Star key={i} size={12} fill="currentColor" />)}
+                </div>
+              )}
+            </div>
+          )}
+
           <MapContainer key={activeScope} center={activeScope === 'Austin' ? [30.2672, -97.7431] : [37.0902, -95.7129]} zoom={activeScope === 'Austin' ? 12 : 4} className="h-full w-full z-0">
             <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' />
-            <MapController center={mapTarget?.center} zoom={mapTarget?.zoom} sidebarWidth={effectiveSidebarWidth} windowWidth={windowWidth} view={view} />
-            {filteredMarkers.map(m => (<Marker key={m.id} position={[m.lat, m.lng]} icon={getMarkerIcon(m.type)}><Popup><div className="font-sans"><strong>{m.name}</strong><span className="block text-xs text-slate-500">{m.address}</span></div></Popup></Marker>))}
+            <MapController 
+              center={mapTarget?.center} 
+              zoom={mapTarget?.zoom} 
+              bounds={mapTarget?.bounds}
+              sidebarWidth={effectiveSidebarWidth} 
+              windowWidth={windowWidth} 
+              view={view} 
+            />
+            {currentRoutePoints.length > 1 && (
+              <Polyline 
+                positions={currentRoutePoints.map(p => [p.lat, p.lng])} 
+                color="#4f46e5" 
+                weight={4} 
+                opacity={0.6} 
+                dashArray="10, 10" 
+              />
+            )}
+            {filteredMarkers.map(m => (
+              <Marker 
+                key={m.id} 
+                position={[m.lat, m.lng]} 
+                icon={getMarkerIcon(m.type, m.id)}
+                eventHandlers={{
+                  click: () => { 
+                    if (isJourneyMode) toggleJourneyPlace(`marker:${m.id}`);
+                    else setMapTarget({ center: [m.lat, m.lng], zoom: 15 });
+                  },
+                  mouseover: () => setHoveredId(`marker:${m.id}`),
+                  mouseout: () => setHoveredId(null)
+                }}
+              />
+            ))}
             {filteredHotels.filter(h => h.lat && h.lng).map(h => (
-              <Marker key={h.id} position={[h.lat, h.lng]} icon={hotelMarkerIcon}>
-                <Popup><div className="font-sans w-64"><span className="text-[10px] font-bold uppercase tracking-wider text-violet-500">Hotel</span><strong className="block text-indigo-600">{h.name}</strong><span className="block text-xs text-slate-500 mb-2">{h.address}</span><PhotoPreviewGrid photos={h.photos || ''} onExpand={(urls, index) => setLightboxState({ urls, index })} />{h.rating && <div className="flex gap-0.5 text-yellow-500 mt-1">{Array.from({ length: parseInt(h.rating) }).map((_, i) => <Star key={i} size={12} fill="currentColor" />)}</div>}</div></Popup>
-              </Marker>
+              <Marker 
+                key={h.id} 
+                position={[h.lat, h.lng]} 
+                icon={getHotelIcon(h.id)}
+                eventHandlers={{
+                  click: () => { 
+                    if (isJourneyMode) toggleJourneyPlace(`hotel:${h.id}`);
+                    else setMapTarget({ center: [h.lat, h.lng], zoom: 15 });
+                  },
+                  mouseover: () => setHoveredId(`hotel:${h.id}`),
+                  mouseout: () => setHoveredId(null)
+                }}
+              />
             ))}
             {filteredPlaces.filter(p => p.lat && p.lng).map(p => (
-              <Marker key={p.id} position={[p.lat, p.lng]}>
-                <Popup><div className="font-sans w-64"><strong className="block text-indigo-600">{p.name}</strong><span className="block text-xs text-slate-500 mb-2">{p.address}</span><PhotoPreviewGrid photos={p.photos || ''} onExpand={(urls, index) => setLightboxState({ urls, index })} />{p.rating && <div className="flex gap-0.5 text-yellow-500 mt-1">{Array.from({ length: parseInt(p.rating) }).map((_, i) => <Star key={i} size={12} fill="currentColor" />)}</div>}</div></Popup>
-              </Marker>
+              <Marker 
+                key={p.id} 
+                position={[p.lat, p.lng]}
+                icon={getPlaceIcon(p.id)}
+                eventHandlers={{
+                  click: () => { 
+                    if (isJourneyMode) toggleJourneyPlace(`place:${p.id}`);
+                    else setMapTarget({ center: [p.lat, p.lng], zoom: 15 });
+                  },
+                  mouseover: () => setHoveredId(`place:${p.id}`),
+                  mouseout: () => setHoveredId(null)
+                }}
+              />
             ))}
           </MapContainer>
         </div>
       </main>
       <nav className="sm:hidden fixed bottom-0 left-0 right-0 bg-white border-t flex items-center justify-around h-[60px] z-[100] px-4"><button onClick={() => setView('list')} className={`flex flex-col items-center gap-1 ${view === 'list' ? 'text-indigo-600' : 'text-slate-400'}`}><List size={20} /><span className="text-[10px] font-bold uppercase">List</span></button><button onClick={() => { setView('list'); setTimeout(() => { document.querySelector('input[type="text"]')?.focus(); }, 50); }} className="flex flex-col items-center justify-center -mt-8 bg-indigo-600 text-white w-14 h-14 rounded-full shadow-lg ring-4 ring-slate-50"><Plus size={24} /></button><button onClick={() => setView('map')} className={`flex flex-col items-center gap-1 ${view === 'map' ? 'text-indigo-600' : 'text-slate-400'}`}><MapIcon size={20} /><span className="text-[10px] font-bold uppercase">Map</span></button></nav>
+      {toastMessage && <Toast message={toastMessage} onClose={() => setToastMessage(null)} />}
+      {confirmationDialog && (
+        <ConfirmationDialog 
+          message={confirmationDialog.message} 
+          onConfirm={() => { confirmationDialog.onConfirm(); setConfirmationDialog(null); }} 
+          onCancel={() => { confirmationDialog.onCancel?.(); setConfirmationDialog(null); }} 
+        />
+      )}
     </div>
   );
 };
