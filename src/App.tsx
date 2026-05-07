@@ -338,7 +338,7 @@ const PhotoPreviewGrid = ({ photos, onExpand }: { photos: string, onExpand: (url
   return <div className="mt-3 mb-1 shrink-0">{renderGrid()}</div>;
 };
 
-const PhotoModal = ({ item, isOpen, onClose, onUpload, appPassword, onExpand }: { item: Place, isOpen: boolean, onClose: () => void, onUpload: (url: string) => void, appPassword: string | null, onExpand: (urls: string[], index: number) => void }) => {
+const PhotoModal = ({ item, isOpen, onClose, onUpload, appPassword, onExpand, onError }: { item: Place, isOpen: boolean, onClose: () => void, onUpload: (url: string) => void, appPassword: string | null, onExpand: (urls: string[], index: number) => void, onError: (message: string) => void }) => {
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const photos = useMemo(() => item.photos ? item.photos.split(',').filter(Boolean) : [], [item.photos]);
@@ -365,7 +365,7 @@ const PhotoModal = ({ item, isOpen, onClose, onUpload, appPassword, onExpand }: 
       }
     } catch (err: any) {
       console.error("Secure upload process failed:", err);
-      setToastMessage(`Upload failed: ${err.message}`);
+      onError(`Upload failed: ${err.message}`);
     } finally {
       setUploadStatus(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -890,7 +890,7 @@ const App = () => {
 
   return (
     <div className={`flex flex-col h-screen bg-slate-50 font-sans text-slate-900 ${isResizing ? 'cursor-col-resize select-none' : ''}`}>
-      {activePhotoItem && (<PhotoModal item={activePhotoItem} isOpen={!!activePhotoItem} onClose={() => setActivePhotoItem(null)} onUpload={(url) => handlePhotoUpload(activePhotoItem, url)} appPassword={appPassword} onExpand={(urls, index) => setLightboxState({ urls, index })} />)}
+      {activePhotoItem && (<PhotoModal item={activePhotoItem} isOpen={!!activePhotoItem} onClose={() => setActivePhotoItem(null)} onUpload={(url) => handlePhotoUpload(activePhotoItem, url)} appPassword={appPassword} onExpand={(urls, index) => setLightboxState({ urls, index })} onError={setToastMessage} />)}
       {lightboxState && (<Lightbox urls={lightboxState.urls} initialIndex={lightboxState.index} onClose={() => setLightboxState(null)} />)}
       <header className="p-3 sm:p-4 bg-white border-b flex flex-col gap-3 shrink-0 z-10">
         <div className="flex items-center justify-between">
@@ -1284,7 +1284,7 @@ const App = () => {
             <div className="absolute top-4 left-4 right-4 sm:left-auto sm:right-4 sm:w-80 bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl border border-indigo-100 z-[100] p-4 animate-in fade-in slide-in-from-top-2 duration-200 pointer-events-none">
               <div className="flex justify-between items-start mb-2">
                 <div className="min-w-0">
-                  <span className="text-[9px] font-black uppercase tracking-widest text-indigo-500 mb-0.5 block">{hoveredItem.category || (hoveredItem as any).type}</span>
+                  <span className="text-[9px] font-black uppercase tracking-widest text-indigo-500 mb-0.5 block">{(hoveredItem as any).category || (hoveredItem as any).type}</span>
                   <h3 className="font-bold text-sm text-slate-900 truncate">{(hoveredItem as any).name}</h3>
                 </div>
                 {(hoveredItem as any).status === 'Visited' && <CheckCircle2 size={16} className="text-green-500 shrink-0" />}
@@ -1367,7 +1367,7 @@ const App = () => {
           </MapContainer>
         </div>
       </main>
-      <nav className="sm:hidden fixed bottom-0 left-0 right-0 bg-white border-t flex items-center justify-around h-[60px] z-[100] px-4"><button onClick={() => setView('list')} className={`flex flex-col items-center gap-1 ${view === 'list' ? 'text-indigo-600' : 'text-slate-400'}`}><List size={20} /><span className="text-[10px] font-bold uppercase">List</span></button><button onClick={() => { setView('list'); setTimeout(() => { document.querySelector('input[type="text"]')?.focus(); }, 50); }} className="flex flex-col items-center justify-center -mt-8 bg-indigo-600 text-white w-14 h-14 rounded-full shadow-lg ring-4 ring-slate-50"><Plus size={24} /></button><button onClick={() => setView('map')} className={`flex flex-col items-center gap-1 ${view === 'map' ? 'text-indigo-600' : 'text-slate-400'}`}><MapIcon size={20} /><span className="text-[10px] font-bold uppercase">Map</span></button></nav>
+      <nav className="sm:hidden fixed bottom-0 left-0 right-0 bg-white border-t flex items-center justify-around h-[60px] z-[100] px-4"><button onClick={() => setView('list')} className={`flex flex-col items-center gap-1 ${view === 'list' ? 'text-indigo-600' : 'text-slate-400'}`}><List size={20} /><span className="text-[10px] font-bold uppercase">List</span></button><button onClick={() => { setView('list'); setTimeout(() => { document.querySelector<HTMLInputElement>('input[type="text"]')?.focus(); }, 50); }} className="flex flex-col items-center justify-center -mt-8 bg-indigo-600 text-white w-14 h-14 rounded-full shadow-lg ring-4 ring-slate-50"><Plus size={24} /></button><button onClick={() => setView('map')} className={`flex flex-col items-center gap-1 ${view === 'map' ? 'text-indigo-600' : 'text-slate-400'}`}><MapIcon size={20} /><span className="text-[10px] font-bold uppercase">Map</span></button></nav>
       {toastMessage && <Toast message={toastMessage} onClose={() => setToastMessage(null)} />}
       {confirmationDialog && (
         <ConfirmationDialog 
