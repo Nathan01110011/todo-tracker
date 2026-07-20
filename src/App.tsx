@@ -8,7 +8,7 @@ import {
   MapPin, Search, Star, X, Plus, Save, Loader2, Bed, RotateCcw, 
   Lock, LogIn, Info, Trophy, Camera, Upload, Image as ImageIcon, 
   Maximize2, ChevronLeft, ChevronRight, Calendar, Route as RouteIcon,
-  Navigation, Trash2, CheckSquare
+  Navigation, Trash2, CheckSquare, Pencil
 } from 'lucide-react';
 import { 
   format, addMonths, subMonths, startOfMonth, endOfMonth, 
@@ -82,6 +82,30 @@ interface Route {
   placeIds: string[];
   scope: string;
 }
+
+const SCOPE_CONFIG = {
+  Austin: {
+    label: 'Austin',
+    center: [30.2672, -97.7431] as [number, number],
+    zoom: 12,
+    searchParams: '&viewbox=-98.3,30.7,-97.2,29.8&bounded=1'
+  },
+  USA: {
+    label: 'USA',
+    center: [37.0902, -95.7129] as [number, number],
+    zoom: 4,
+    searchParams: ''
+  },
+  'UK & Ireland': {
+    label: 'UK & Ireland',
+    center: [54.5, -4.5] as [number, number],
+    zoom: 5,
+    searchParams: '&viewbox=-11,61.2,2.2,49.8&bounded=1'
+  }
+};
+
+type ScopeName = keyof typeof SCOPE_CONFIG;
+const SCOPE_NAMES = Object.keys(SCOPE_CONFIG) as ScopeName[];
 
 // Map Controller Component
 const MapController = ({ center, zoom, sidebarWidth, windowWidth, view, bounds }: any) => {
@@ -163,6 +187,86 @@ const ConfirmationDialog = ({ message, onConfirm, onCancel }: { message: string,
           <button onClick={onConfirm} className="px-5 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors">Confirm</button>
         </div>
       </div>
+    </div>
+  );
+};
+
+const EditLocationModal = ({ item, onSave, onDelete, onClose }: { item: Place, onSave: (id: string, data: any, type: 'place' | 'hotel') => void, onDelete: (item: Place) => void, onClose: () => void }) => {
+  const [name, setName] = useState(item.name);
+  const [category, setCategory] = useState(item.category || 'Other');
+  const [address, setAddress] = useState(item.address);
+  const [lat, setLat] = useState(String(item.lat));
+  const [lng, setLng] = useState(String(item.lng));
+  const [details, setDetails] = useState(item.details || '');
+  const isHotel = item.type === 'hotel';
+
+  const handleSubmit = (event: React.FormEvent) => {
+    event.preventDefault();
+    const nextLat = parseFloat(lat);
+    const nextLng = parseFloat(lng);
+    onSave(item.id, {
+      name: name.trim() || item.name,
+      category: isHotel ? 'Hotels' : category,
+      address,
+      lat: Number.isFinite(nextLat) ? nextLat : item.lat,
+      lng: Number.isFinite(nextLng) ? nextLng : item.lng,
+      details
+    }, item.type || 'place');
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[550] flex items-center justify-center p-4">
+      <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200">
+        <div className="p-5 border-b flex items-center justify-between">
+          <div>
+            <h3 className="font-bold text-lg text-slate-900">Edit Location</h3>
+            <p className="text-xs text-slate-500">Adjust the saved details or remove it entirely.</p>
+          </div>
+          <button type="button" onClick={onClose} className="p-2 rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700"><X size={20} /></button>
+        </div>
+        <div className="p-5 space-y-4">
+          <label className="block space-y-1">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Name</span>
+            <input value={name} onChange={(e) => setName(e.target.value)} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
+          </label>
+          {!isHotel && (
+            <label className="block space-y-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Category</span>
+              <select value={category} onChange={(e) => setCategory(e.target.value)} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm">
+                {['Food', 'Drinks', 'Activities', 'Sport', 'Other'].map(option => <option key={option} value={option}>{option}</option>)}
+              </select>
+            </label>
+          )}
+          <label className="block space-y-1">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Address</span>
+            <input value={address} onChange={(e) => setAddress(e.target.value)} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
+          </label>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block space-y-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Latitude</span>
+              <input value={lat} onChange={(e) => setLat(e.target.value)} inputMode="decimal" className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Longitude</span>
+              <input value={lng} onChange={(e) => setLng(e.target.value)} inputMode="decimal" className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
+            </label>
+          </div>
+          {!isHotel && (
+            <label className="block space-y-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Details</span>
+              <input value={details} onChange={(e) => setDetails(e.target.value)} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
+            </label>
+          )}
+        </div>
+        <div className="p-5 border-t bg-slate-50 flex items-center justify-between gap-3">
+          <button type="button" onClick={() => onDelete(item)} className="px-4 py-2 rounded-xl text-red-600 hover:bg-red-50 font-bold text-xs flex items-center gap-2"><Trash2 size={16} /> Delete</button>
+          <div className="flex gap-2">
+            <button type="button" onClick={onClose} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 hover:bg-white font-bold text-xs">Cancel</button>
+            <button type="submit" className="px-4 py-2 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 font-bold text-xs flex items-center gap-2"><Save size={16} /> Save Changes</button>
+          </div>
+        </div>
+      </form>
     </div>
   );
 };
@@ -419,7 +523,7 @@ const App = () => {
   const [journeyFilter, setJourneyFilter] = useState('All');
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [filter, setFilter] = useState('TODO');
-  const [activeScope, setActiveScope] = useState('Austin');
+  const [activeScope, setActiveScope] = useState<ScopeName>('Austin');
   const [visitedFilter, setVisitedFilter] = useState('All');
   const [view, setView] = useState('split');
   const [sidebarWidth, setSidebarWidth] = useState(33.33);
@@ -429,6 +533,7 @@ const App = () => {
   const [mapTarget, setMapTarget] = useState<any>(null);
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   const [activePhotoItem, setActivePhotoItem] = useState<Place | null>(null);
+  const [editingItem, setEditingItem] = useState<Place | null>(null);
   const [lightboxState, setLightboxState] = useState<{ urls: string[], index: number } | null>(null);
   const [appPassword, setAppPassword] = useState<string | null>(localStorage.getItem('todo_tracker_pw'));
   const [pwInput, setPwInput] = useState('');
@@ -501,6 +606,46 @@ const App = () => {
       if (type === 'hotel') setHotels(prevHotels); else setPlaces(prevPlaces);
       setError("Failed to save. Reverting..."); setTimeout(() => setError(null), 3000);
     }
+  };
+
+  const deletePlace = async (item: Place) => {
+    const type = item.type || 'place';
+    setConfirmationDialog({
+      message: `Delete "${item.name}"?`,
+      onConfirm: async () => {
+        const compositeId = `${type}:${item.id}`;
+        const prevPlaces = [...places];
+        const prevHotels = [...hotels];
+        const prevRoutes = [...routes];
+        const removeFromRoutes = (route: Route) => ({
+          ...route,
+          placeIds: route.placeIds.filter(placeId => placeId !== compositeId && placeId !== item.id)
+        });
+
+        if (type === 'hotel') setHotels(current => current.filter(h => h.id !== item.id));
+        else setPlaces(current => current.filter(p => p.id !== item.id));
+        setRoutes(current => current.map(removeFromRoutes));
+        setEditingItem(null);
+
+        try {
+          const response = await fetch('/api/places', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': appPassword || '' },
+            body: JSON.stringify({ id: item.id, type, action: 'delete' })
+          });
+
+          if (!response.ok) throw new Error('Failed to delete');
+          setToastMessage(`Deleted "${item.name}".`);
+        } catch (error) {
+          setPlaces(prevPlaces);
+          setHotels(prevHotels);
+          setRoutes(prevRoutes);
+          setError("Failed to delete. Reverting...");
+          setTimeout(() => setError(null), 3000);
+        }
+      },
+      onCancel: () => {}
+    });
   };
 
   const addPlace = async (category: string) => {
@@ -891,10 +1036,11 @@ const App = () => {
   return (
     <div className={`flex flex-col h-screen bg-slate-50 font-sans text-slate-900 ${isResizing ? 'cursor-col-resize select-none' : ''}`}>
       {activePhotoItem && (<PhotoModal item={activePhotoItem} isOpen={!!activePhotoItem} onClose={() => setActivePhotoItem(null)} onUpload={(url) => handlePhotoUpload(activePhotoItem, url)} appPassword={appPassword} onExpand={(urls, index) => setLightboxState({ urls, index })} onError={setToastMessage} />)}
+      {editingItem && (<EditLocationModal item={editingItem} onSave={updatePlace} onDelete={deletePlace} onClose={() => setEditingItem(null)} />)}
       {lightboxState && (<Lightbox urls={lightboxState.urls} initialIndex={lightboxState.index} onClose={() => setLightboxState(null)} />)}
       <header className="p-3 sm:p-4 bg-white border-b flex flex-col gap-3 shrink-0 z-10">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3 sm:gap-4"><h1 className="text-lg sm:text-xl font-bold text-indigo-600">TODO Tracker</h1><div className="flex bg-slate-100 p-1 rounded-lg">{['Austin', 'USA'].map(scope => (<button key={scope} onClick={() => { setActiveScope(scope); setFilter('All'); }} className={`px-3 py-1 rounded-md text-xs sm:text-sm font-bold transition-all ${activeScope === scope ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}>{scope}</button>))}</div></div>
+          <div className="flex items-center gap-3 sm:gap-4"><h1 className="text-lg sm:text-xl font-bold text-indigo-600">TODO Tracker</h1><div className="flex bg-slate-100 p-1 rounded-lg">{SCOPE_NAMES.map(scope => (<button key={scope} onClick={() => { setActiveScope(scope); setFilter('All'); setActiveRouteId(null); setMapTarget(null); }} className={`px-3 py-1 rounded-md text-xs sm:text-sm font-bold transition-all ${activeScope === scope ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}>{SCOPE_CONFIG[scope].label}</button>))}</div></div>
           <button 
             onClick={() => { setFilter('Journeys'); setIsJourneyMode(true); setSelectedJourneyPlaces([]); setJourneyName(''); setJourneySortMode('shortest'); setActiveRouteId(null); if (windowWidth < 640) setView('list'); }}
             className="flex items-center gap-2 bg-indigo-600 text-white px-3 py-1.5 rounded-xl text-xs font-bold hover:bg-indigo-700 transition-all shadow-md active:scale-95"
@@ -913,7 +1059,7 @@ const App = () => {
         <div style={{ width: `${effectiveSidebarWidth}%` }} className={`overflow-y-auto p-3 sm:p-4 space-y-6 shrink-0 ${view === 'map' ? 'hidden sm:block sm:!w-0' : 'block'}`}>
           <section className="space-y-3">
             <h2 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Add New Place</h2>
-            <form onSubmit={async (e) => { e.preventDefault(); if (!searchQuery) return; setIsSearching(true); try { let url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}`; if (activeScope === 'Austin') url += '&viewbox=-98.3,30.7,-97.2,29.8&bounded=1'; const res = await fetch(url); setSearchResults(await res.json()); } finally { setIsSearching(false); } }} className="relative">
+            <form onSubmit={async (e) => { e.preventDefault(); if (!searchQuery) return; setIsSearching(true); try { const scopeConfig = SCOPE_CONFIG[activeScope]; const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}${scopeConfig.searchParams}`; const res = await fetch(url); setSearchResults(await res.json()); } finally { setIsSearching(false); } }} className="relative">
               <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search..." className="w-full pl-10 pr-10 py-2.5 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm text-sm" />
               <div className="absolute left-3 top-2.5 text-slate-400">{isSearching ? <Loader2 size={18} className="animate-spin text-indigo-500" /> : <Search size={18} />}</div>
             </form>
@@ -1185,7 +1331,11 @@ const App = () => {
                                 <p className="text-sm md:text-[11px] text-slate-500 truncate mt-1">{item.address}</p>
                               </div>
                               {!isJourneyMode && (
-                                <button onClick={(e) => { e.stopPropagation(); updatePlace(item.id, { status: 'To Do' }, item.type); }} className="p-2 rounded-full text-green-500 bg-green-50"><CheckCircle2 size={28} /></button>
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <button onClick={(e) => { e.stopPropagation(); setEditingItem(item); }} className="p-2 rounded-lg text-slate-300 hover:text-indigo-600 hover:bg-indigo-50" title="Edit location"><Pencil size={18} /></button>
+                                  <button onClick={(e) => { e.stopPropagation(); deletePlace(item); }} className="p-2 rounded-lg text-slate-300 hover:text-red-600 hover:bg-red-50" title="Delete location"><Trash2 size={18} /></button>
+                                  <button onClick={(e) => { e.stopPropagation(); updatePlace(item.id, { status: 'To Do' }, item.type); }} className="p-2 rounded-full text-green-500 bg-green-50"><CheckCircle2 size={28} /></button>
+                                </div>
                               )}
                               {isJourneyMode && (
                                 <div className={`p-2 rounded-full transition-colors ${selectedJourneyPlaces.includes(`${item.type}:${item.id}`) ? 'text-indigo-600 bg-indigo-100' : 'text-slate-200'}`}>
@@ -1199,6 +1349,13 @@ const App = () => {
                                   <div className="space-y-1"><span className="text-xs font-bold text-slate-400 uppercase">Rating</span><StarRating rating={item.rating} onChange={(r) => updatePlace(item.id, { rating: r }, item.type)} /></div>
                                   <div className="flex-1 min-w-[140px] max-w-[180px]"><span className="text-[10px] font-bold text-slate-400 uppercase block mb-1 ml-1">Date Visited</span><CustomDatePicker value={item.date || ''} onChange={(d) => updatePlace(item.id, { date: d }, item.type)} /></div>
                                   <div className="flex items-center gap-1">
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); setEditingItem(item); }}
+                                      className="p-2 rounded-lg text-slate-300 hover:text-indigo-500 hover:bg-indigo-50"
+                                      title="Edit location"
+                                    >
+                                      <Pencil size={20} />
+                                    </button>
                                     <button 
                                       onClick={(e) => { e.stopPropagation(); setActivePhotoItem(item); }} 
                                       className={`p-2 rounded-lg ${item.photos && item.photos.split(',').filter(Boolean).length > 0 ? 'bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100' : 'text-slate-300 hover:text-indigo-500 hover:bg-indigo-50'}`}
@@ -1206,6 +1363,13 @@ const App = () => {
                                       <Camera size={20} />
                                     </button>
                                     <button onClick={(e) => { e.stopPropagation(); updatePlace(item.id, { return: !(item.return === 'TRUE' || item.return === true) }, item.type); }} className={`p-2 rounded-lg ${(item.return === 'TRUE' || item.return === true) ? 'bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100' : 'text-slate-300'}`}><RotateCcw size={20} /></button>
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); deletePlace(item); }}
+                                      className="p-2 rounded-lg text-slate-300 hover:text-red-600 hover:bg-red-50"
+                                      title="Delete location"
+                                    >
+                                      <Trash2 size={20} />
+                                    </button>
                                   </div>
                                 </div>
                                 <textarea placeholder="Notes..." defaultValue={item.notes} onClick={(e) => e.stopPropagation()} onBlur={(e) => { if (e.target.value !== item.notes) updatePlace(item.id, { notes: e.target.value }, item.type); }} className="w-full text-sm bg-slate-50 border-none rounded-lg p-3 outline-none focus:ring-2 focus:ring-indigo-500 transition-all h-20 resize-none" />
@@ -1242,16 +1406,32 @@ const App = () => {
                           <p className="text-sm md:text-[11px] text-slate-500 truncate mt-1">{item.address}</p>
                         </div>
                         {!isJourneyMode && (
-                          <button 
-                            onClick={(e) => { 
-                              e.stopPropagation(); 
-                              const newStatus = item.status === 'Visited' ? 'To Do' : 'Visited';
-                              updatePlace(item.id, { status: newStatus }, item.type); 
-                            }} 
-                            className={`p-2 rounded-full transition-colors ${item.status === 'Visited' ? 'text-green-500 bg-green-50' : 'text-slate-300 hover:text-indigo-500 hover:bg-indigo-50'}`}
-                          >
-                            {item.status === 'Visited' ? <CheckCircle2 size={28} /> : <Circle size={28} />}
-                          </button>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setEditingItem(item); }}
+                              className="p-2 rounded-lg text-slate-300 hover:text-indigo-500 hover:bg-indigo-50"
+                              title="Edit location"
+                            >
+                              <Pencil size={18} />
+                            </button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); deletePlace(item); }}
+                              className="p-2 rounded-lg text-slate-300 hover:text-red-600 hover:bg-red-50"
+                              title="Delete location"
+                            >
+                              <Trash2 size={18} />
+                            </button>
+                            <button 
+                              onClick={(e) => { 
+                                e.stopPropagation(); 
+                                const newStatus = item.status === 'Visited' ? 'To Do' : 'Visited';
+                                updatePlace(item.id, { status: newStatus }, item.type); 
+                              }} 
+                              className={`p-2 rounded-full transition-colors ${item.status === 'Visited' ? 'text-green-500 bg-green-50' : 'text-slate-300 hover:text-indigo-500 hover:bg-indigo-50'}`}
+                            >
+                              {item.status === 'Visited' ? <CheckCircle2 size={28} /> : <Circle size={28} />}
+                            </button>
+                          </div>
                         )}
                         {isJourneyMode && (
                           <div className={`p-2 rounded-full transition-colors ${selectedJourneyPlaces.includes(`${item.type}:${item.id}`) ? 'text-indigo-600 bg-indigo-100' : 'text-slate-200'}`}>
@@ -1300,7 +1480,7 @@ const App = () => {
             </div>
           )}
 
-          <MapContainer key={activeScope} center={activeScope === 'Austin' ? [30.2672, -97.7431] : [37.0902, -95.7129]} zoom={activeScope === 'Austin' ? 12 : 4} className="h-full w-full z-0">
+          <MapContainer key={activeScope} center={SCOPE_CONFIG[activeScope].center} zoom={SCOPE_CONFIG[activeScope].zoom} className="h-full w-full z-0">
             <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' />
             <MapController 
               center={mapTarget?.center} 

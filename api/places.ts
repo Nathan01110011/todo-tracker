@@ -137,7 +137,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (req.method === 'POST') {
-      const { id, status, rating, notes, name, category, address, lat, lng, scope, return: returnFlag, details, photoUrl, date, type = 'place', placeIds } = req.body;
+      const { id, status, rating, notes, name, category, address, lat, lng, scope, return: returnFlag, details, photoUrl, date, type = 'place', placeIds, action } = req.body;
       
       if (photoUrl && id && photosSheet) {
         await photosSheet.addRow({
@@ -178,6 +178,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (id) {
         const row = rows.find(r => r.get('id') === id);
         if (row) {
+          if (action === 'delete') {
+            if (routesSheet) {
+              const routeRows = await routesSheet.getRows();
+              await Promise.all(routeRows.map(async routeRow => {
+                const nextPlaceIds = (routeRow.get('placeIds') || '')
+                  .split(',')
+                  .filter(Boolean)
+                  .filter((placeId: string) => placeId !== `${type}:${id}` && placeId !== id);
+                routeRow.set('placeIds', nextPlaceIds.join(','));
+                await routeRow.save();
+              }));
+            }
+            await row.delete();
+            return res.status(200).json({ success: true });
+          }
+
+          if (name !== undefined) row.set('name', name);
+          if (category !== undefined && type !== 'hotel') row.set('category', category);
+          if (address !== undefined) row.set('address', address);
+          if (lat !== undefined) row.set('lat', String(lat));
+          if (lng !== undefined) row.set('lng', String(lng));
           if (status !== undefined) row.set('status', status);
           if (rating !== undefined) row.set('rating', rating);
           if (notes !== undefined) row.set('notes', notes);
