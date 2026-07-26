@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline } from 'react-leaflet';
 import L from 'leaflet';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -275,16 +276,57 @@ const EditLocationModal = ({ item, onSave, onDelete, onClose }: { item: Place, o
 const CustomDatePicker = ({ value, onChange }: { value: string, onChange: (date: string) => void }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [currentMonth, setCurrentMonth] = useState(value ? parseISO(value) : new Date());
+  const [popoverPosition, setPopoverPosition] = useState({ top: 0, left: 0 });
+  const buttonRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
+  const popoverWidth = 280;
+
+  const updatePopoverPosition = () => {
+    const button = buttonRef.current;
+    if (!button) return;
+
+    const rect = button.getBoundingClientRect();
+    const gap = 8;
+    const left = Math.min(
+      Math.max(12, rect.left),
+      window.innerWidth - popoverWidth - 12
+    );
+    const opensUpward = rect.bottom + gap + 340 > window.innerHeight && rect.top > 340;
+
+    setPopoverPosition({
+      left,
+      top: opensUpward ? rect.top - gap : rect.bottom + gap,
+    });
+  };
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (popoverRef.current && !popoverRef.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+      if (
+        popoverRef.current &&
+        !popoverRef.current.contains(target) &&
+        buttonRef.current &&
+        !buttonRef.current.contains(target)
+      ) {
         setIsOpen(false);
       }
     };
     if (isOpen) document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    updatePopoverPosition();
+    const handleReposition = () => updatePopoverPosition();
+
+    window.addEventListener('resize', handleReposition);
+    window.addEventListener('scroll', handleReposition, true);
+    return () => {
+      window.removeEventListener('resize', handleReposition);
+      window.removeEventListener('scroll', handleReposition, true);
+    };
   }, [isOpen]);
 
   const renderHeader = () => (
@@ -355,37 +397,56 @@ const CustomDatePicker = ({ value, onChange }: { value: string, onChange: (date:
     return <div className="p-1">{rows}</div>;
   };
 
+  const popover = isOpen ? createPortal(
+    <div
+      ref={popoverRef}
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+      className="fixed w-[280px] bg-white rounded-2xl shadow-2xl border border-slate-100 z-[550] overflow-hidden"
+      style={{
+        left: popoverPosition.left,
+        top: popoverPosition.top,
+        transform: popoverPosition.top < (buttonRef.current?.getBoundingClientRect().top ?? 0) ? 'translateY(-100%)' : undefined,
+      }}
+    >
+      {renderHeader()}
+      {renderDays()}
+      {renderCells()}
+      <div className="p-3 bg-slate-50 border-t border-slate-100 flex justify-between items-center">
+        <button
+          onClick={() => { onChange(''); setIsOpen(false); }}
+          className="text-[10px] font-bold text-slate-400 hover:text-red-500 uppercase tracking-wider transition-colors"
+        >
+          Clear Date
+        </button>
+        <button
+          onClick={() => { onChange(format(new Date(), 'yyyy-MM-dd')); setIsOpen(false); }}
+          className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 uppercase tracking-wider transition-colors"
+        >
+          Today
+        </button>
+      </div>
+    </div>,
+    document.body
+  ) : null;
+
   return (
-    <div className="relative w-full" ref={popoverRef}>
-      <button 
-        onClick={(e) => { e.stopPropagation(); setIsOpen(!isOpen); }}
+    <div className="relative w-full">
+      <button
+        ref={buttonRef}
+        onClick={(e) => {
+          e.stopPropagation();
+          updatePopoverPosition();
+          setCurrentMonth(value ? parseISO(value) : new Date());
+          setIsOpen(!isOpen);
+        }}
         className="w-full text-xs font-black text-indigo-600 bg-indigo-50/50 border border-indigo-100/50 rounded-xl pl-9 pr-3 py-2.5 hover:bg-white focus:ring-2 focus:ring-indigo-500 transition-all flex items-center shadow-sm"
       >
         <Calendar size={16} className="absolute left-3 text-indigo-400" strokeWidth={2.5} />
         {value ? format(parseISO(value), 'MMM d, yyyy') : 'Pick a date'}
       </button>
 
-      {isOpen && (
-        <div className="absolute top-full left-0 mt-2 w-[280px] bg-white rounded-2xl shadow-2xl border border-slate-100 z-[200] overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
-          {renderHeader()}
-          {renderDays()}
-          {renderCells()}
-          <div className="p-3 bg-slate-50 border-t border-slate-100 flex justify-between items-center">
-            <button 
-              onClick={() => { onChange(''); setIsOpen(false); }}
-              className="text-[10px] font-bold text-slate-400 hover:text-red-500 uppercase tracking-wider transition-colors"
-            >
-              Clear Date
-            </button>
-            <button 
-              onClick={() => { onChange(format(new Date(), 'yyyy-MM-dd')); setIsOpen(false); }}
-              className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 uppercase tracking-wider transition-colors"
-            >
-              Today
-            </button>
-          </div>
-        </div>
-      )}
+      {popover}
     </div>
   );
 }; // Closing CustomDatePicker
@@ -490,7 +551,7 @@ const PhotoModal = ({ item, isOpen, onClose, onUpload, appPassword, onExpand, on
             <div className="flex flex-col gap-10">
               {photos.map((url, i) => (
                 <div key={i} onClick={() => onExpand(photos, i)} className="w-full rounded-2xl sm:rounded-3xl overflow-hidden shadow-lg border border-slate-100 group relative cursor-pointer bg-slate-50 flex items-center justify-center min-h-[300px]">
-                  <img src={url} alt={`Visit ${i+1}`} className="w-full h-auto max-h-[75vh] block object-contain transition-transform duration-700 group-hover:scale-[1.02]" />
+                  <img src={url} alt={`Visit ${i+1}`} className="w-full h-auto max-h-[75vh] block object-contain" />
                   <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
                     <div className="bg-white/30 backdrop-blur-md p-4 rounded-full text-white shadow-xl"><Maximize2 size={32} strokeWidth={2.5} /></div>
                   </div>
