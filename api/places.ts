@@ -10,7 +10,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (!password) return res.status(500).json({ error: 'Server configuration error: PASSWORD not set.' });
   const authHeader = req.headers.authorization;
-  if (authHeader !== password) {
+  const isOwner = authHeader === password;
+
+  // Reading is public. Any mutation still requires the owner password.
+  // If a caller supplies a credential, reject it when invalid so the UI can
+  // distinguish a failed owner sign-in from an anonymous view-only request.
+  if ((req.method !== 'GET' && !isOwner) || (req.method === 'GET' && authHeader && !isOwner)) {
     await new Promise(resolve => setTimeout(resolve, 1500));
     return res.status(401).json({ error: 'Unauthorized: Incorrect password.' });
   }
@@ -44,7 +49,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       routesSheet = await doc.addSheet({ title: 'Routes', headerValues: ['id', 'name', 'placeIds', 'scope'] });
     }
 
-    if (lockedSheet) {
+    if (lockedSheet && isOwner) {
       const lockRows = await lockedSheet.getRows();
       const lockRow = lockRows[0];
       if (lockRow) {
