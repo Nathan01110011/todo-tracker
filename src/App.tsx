@@ -58,6 +58,7 @@ interface Place {
   status: string;
   notes: string;
   rating: string;
+  priority: string;
   scope: string;
   return?: string | boolean;
   type?: 'place' | 'hotel';
@@ -729,7 +730,7 @@ const App = () => {
   const addPlace = async (category: string) => {
     if (!isOwner || !pendingPlace) return; setIsAdding(true);
     const isHotel = category === 'Hotels';
-    const newEntry: any = { name: pendingName || pendingPlace.display_name.split(',')[0], address: pendingPlace.display_name.split(',').slice(1).join(',').trim(), lat: parseFloat(pendingPlace.lat), lng: parseFloat(pendingPlace.lon), category: isHotel ? 'Hotels' : category, status: 'To Do', notes: '', rating: '', scope: activeScope, type: isHotel ? 'hotel' : 'place', details: pendingDetails };
+    const newEntry: any = { name: pendingName || pendingPlace.display_name.split(',')[0], address: pendingPlace.display_name.split(',').slice(1).join(',').trim(), lat: parseFloat(pendingPlace.lat), lng: parseFloat(pendingPlace.lon), category: isHotel ? 'Hotels' : category, status: 'To Do', notes: '', rating: '', priority: '', scope: activeScope, type: isHotel ? 'hotel' : 'place', details: pendingDetails };
     try {
       const res = await fetch('/api/places', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': appPassword || '' }, body: JSON.stringify(newEntry) });
       const data = await res.json();
@@ -1015,6 +1016,16 @@ const App = () => {
     return [];
   }, [hotels, filter, activeScope, visitedFilter, isJourneyMode, journeyFilter, routes, activeRouteId]);
 
+  const displayItems = useMemo(() => {
+    const items = [
+      ...filteredHotels.map(h => ({ ...h, category: 'Hotels', type: 'hotel' as const })),
+      ...filteredPlaces.map(p => ({ ...p, type: 'place' as const }))
+    ];
+
+    if (filter === 'Visited') return items;
+    return items.sort((a, b) => (parseInt(b.priority) || 0) - (parseInt(a.priority) || 0));
+  }, [filteredHotels, filteredPlaces, filter]);
+
   const visitedGroups = useMemo(() => {
     if (filter !== 'Visited') return {};
     let all = [...places.filter(p => p.scope === activeScope && p.status === 'Visited').map(p => ({ ...p, type: 'place' as const })), ...hotels.filter(h => h.scope === activeScope && h.status === 'Visited').map(h => ({ ...h, category: 'Hotels', type: 'hotel' as const }))];
@@ -1096,8 +1107,39 @@ const App = () => {
   };
 
   const StarRating = ({ rating, onChange, readOnly = false }: { rating: string, onChange: (r: string) => void, readOnly?: boolean }) => (
-    <div className="flex gap-1 shrink-0">{[1, 2, 3, 4, 5].map(star => (<button key={star} disabled={readOnly} onClick={(e) => { e.stopPropagation(); if (!readOnly) onChange(star.toString()); }} className={`transition-colors ${parseInt(rating) >= star ? 'text-yellow-400' : `text-slate-300 ${readOnly ? '' : 'hover:text-yellow-400'}`}`}><Star size={18} strokeWidth={2.5} fill={parseInt(rating) >= star ? 'currentColor' : 'none'} /></button>))}</div>
+    <div className="flex gap-1 shrink-0">{[1, 2, 3, 4, 5].map(star => (<button key={star} disabled={readOnly} onClick={(e) => { e.stopPropagation(); if (!readOnly) onChange(star.toString()); }} className={`transition-colors ${parseInt(rating) >= star ? 'text-yellow-400' : `text-slate-400 ${readOnly ? '' : 'hover:text-yellow-400'}`}`}><Star size={18} strokeWidth={2.5} fill={parseInt(rating) >= star ? 'currentColor' : 'none'} /></button>))}</div>
   );
+
+  const PriorityRating = ({ priority, onChange, readOnly = false, compact = false }: { priority: string, onChange: (r: string) => void, readOnly?: boolean, compact?: boolean }) => (
+    <div className="flex items-center gap-0.5 shrink-0" aria-label={priority ? `Priority ${priority} out of 5` : 'No priority set'}>
+      {[1, 2, 3, 4, 5].map(level => {
+        const score = parseInt(priority) || 0;
+        const activeColor = score === 1 ? 'text-rose-300' : score === 2 ? 'text-orange-400' : score === 3 ? 'text-amber-400' : score === 4 ? 'text-lime-500' : 'text-emerald-500';
+        return (
+          <button
+            key={level}
+            type="button"
+            disabled={readOnly}
+            aria-label={`Set priority to ${level} out of 5`}
+            onClick={(e) => { e.stopPropagation(); if (!readOnly) onChange(level.toString()); }}
+            className={`rounded-full transition-all ${compact ? 'p-0.5' : 'p-1'} ${score >= level ? activeColor : `text-slate-400 ${readOnly ? '' : 'hover:text-slate-500'}`}`}
+          >
+            <Circle size={compact ? 12 : 16} strokeWidth={2.5} fill={score >= level ? 'currentColor' : 'none'} />
+          </button>
+        );
+      })}
+    </div>
+  );
+
+  const priorityCardClass = (priority: string) => {
+    const score = parseInt(priority) || 0;
+    if (score === 5) return 'bg-emerald-50/70 border-emerald-200 hover:border-emerald-300';
+    if (score === 4) return 'bg-lime-50/60 border-lime-200 hover:border-lime-300';
+    if (score === 3) return 'bg-amber-50/50 border-amber-200 hover:border-amber-300';
+    if (score === 2) return 'bg-orange-50/40 border-orange-100 hover:border-orange-200';
+    if (score === 1) return 'bg-rose-50/40 border-rose-100 hover:border-rose-200';
+    return 'bg-white border-slate-100 hover:border-indigo-200';
+  };
 
   return (
     <div className={`flex flex-col h-screen bg-slate-50 font-sans text-slate-900 ${isResizing ? 'cursor-col-resize select-none' : ''}`}>
@@ -1266,7 +1308,7 @@ const App = () => {
                 <div className="space-y-4 pt-4 border-t border-slate-100">
                   <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Select Locations</h3>
                   <div className="space-y-2">
-                    {[...filteredHotels.map(h => ({ ...h, category: 'Hotels', type: 'hotel' as const })), ...filteredPlaces.map(p => ({ ...p, type: 'place' as const }))].map(item => {
+                    {displayItems.map(item => {
                       const itemId = `${item.type}:${item.id}`;
                       const isSelected = selectedJourneyPlaces.includes(itemId);
                       const isStart = selectedJourneyPlaces[0] === itemId;
@@ -1284,6 +1326,7 @@ const App = () => {
                               {isStart && <span className="text-[8px] font-black uppercase tracking-widest bg-white/15 text-white px-1.5 py-0.5 rounded-full">Start</span>}
                             </div>
                             <h4 className="font-semibold text-xs truncate">{item.name}</h4>
+                            <PriorityRating priority={item.priority} readOnly compact onChange={() => {}} />
                           </div>
                           <div className={`transition-colors ${isStart ? 'text-white' : isSelected ? 'text-indigo-600' : 'text-slate-200'}`}>
                             {isSelected ? <CheckCircle2 size={20} /> : <Circle size={20} />}
@@ -1430,6 +1473,7 @@ const App = () => {
                               <div className="pt-3 border-t border-slate-50 space-y-4">
                                 <div className="flex flex-wrap items-end justify-between gap-3">
                                   <div className="space-y-1"><span className="text-xs font-bold text-slate-400 uppercase">Rating</span><StarRating rating={item.rating} readOnly={!isOwner} onChange={(r) => updatePlace(item.id, { rating: r }, item.type)} /></div>
+                                  <div className="space-y-1"><span className="text-xs font-bold text-slate-400 uppercase">Priority</span><PriorityRating priority={item.priority} readOnly={!isOwner} onChange={(r) => updatePlace(item.id, { priority: r }, item.type)} /></div>
                                   <div className="flex-1 min-w-[140px] max-w-[180px]"><span className="text-[10px] font-bold text-slate-400 uppercase block mb-1 ml-1">Date Visited</span>{isOwner ? <CustomDatePicker value={item.date || ''} onChange={(d) => updatePlace(item.id, { date: d }, item.type)} /> : <p className="px-3 py-2 text-sm bg-slate-50 rounded-lg text-slate-600">{item.date ? format(parseISO(item.date), 'd MMM yyyy') : 'Not recorded'}</p>}</div>
                                   <div className="flex items-center gap-1">
                                     {isOwner && <button
@@ -1464,7 +1508,7 @@ const App = () => {
                     </div>
                   ))
                 ) : (
-                  <>{[...filteredHotels.map(h => ({ ...h, category: 'Hotels', type: 'hotel' as const })), ...filteredPlaces.map(p => ({ ...p, type: 'place' as const }))].map(item => (
+                  <>{displayItems.map(item => (
                     <div 
                       key={`${item.type}:${item.id}`} 
                       onMouseEnter={() => setHoveredId(`${item.type}:${item.id}`)}
@@ -1474,7 +1518,7 @@ const App = () => {
                         const lat = parseFloat(item.lat as any); const lng = parseFloat(item.lng as any); 
                         if (!isNaN(lat)) { setMapTarget({ center: [lat, lng], zoom: 15 }); if (windowWidth < 640) setView('map'); } 
                       }} 
-                      className={`p-4 sm:p-3 rounded-xl shadow-sm border transition-all cursor-pointer flex flex-col gap-3 group ${isJourneyMode && selectedJourneyPlaces.includes(`${item.type}:${item.id}`) ? 'bg-indigo-50 border-indigo-500 ring-2 ring-indigo-200' : 'bg-white border-slate-100 hover:border-indigo-200'} ${hoveredId === `${item.type}:${item.id}` ? 'translate-x-1 shadow-md border-indigo-200' : ''}`}
+                      className={`p-4 sm:p-3 rounded-xl shadow-sm border transition-all cursor-pointer flex flex-col gap-3 group ${isJourneyMode && selectedJourneyPlaces.includes(`${item.type}:${item.id}`) ? 'bg-indigo-50 border-indigo-500 ring-2 ring-indigo-200' : priorityCardClass(item.priority)} ${hoveredId === `${item.type}:${item.id}` ? 'translate-x-1 shadow-md' : ''}`}
                     >
                       <div className="flex justify-between items-center">
                         <div className="min-w-0 pr-2">
@@ -1487,6 +1531,10 @@ const App = () => {
                           <h3 className={`font-semibold text-base md:text-sm truncate transition-colors ${hoveredId === `${item.type}:${item.id}` ? 'text-indigo-600' : ''}`}>{item.name}</h3>
                           {item.details && <p className="text-[10px] text-indigo-500 font-medium italic flex items-center gap-1"><Info size={12}/> {item.details}</p>}
                           <p className="text-sm md:text-[11px] text-slate-500 truncate mt-1">{item.address}</p>
+                          <div className="flex items-center gap-2 mt-2">
+                            <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">Priority</span>
+                            <PriorityRating priority={item.priority} readOnly={!isOwner} compact onChange={(r) => updatePlace(item.id, { priority: r }, item.type)} />
+                          </div>
                         </div>
                         {isOwner && !isJourneyMode && (
                           <div className="flex items-center gap-1 shrink-0">

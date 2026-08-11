@@ -42,13 +42,13 @@ PASSWORD=your_app_password_here
 Your spreadsheet requires three tabs (sheets) with specific headers:
 
 ### Sheet 1: "Places" (Index 0)
-`id`, `category`, `name`, `address`, `lat`, `lng`, `status`, `notes`, `rating`, `scope`, `return`
+`id`, `category`, `name`, `address`, `lat`, `lng`, `status`, `notes`, `rating`, `priority`, `scope`, `return`
 
 ### Sheet 2: "Markers" (Index 1)
 `id`, `type`, `name`, `address`, `lat`, `lng`, `notes`, `scope`
 
 ### Sheet 3: "Hotels" (Index 2)
-`id`, `name`, `address`, `lat`, `lng`, `status`, `notes`, `rating`, `scope`, `return`
+`id`, `name`, `address`, `lat`, `lng`, `status`, `notes`, `rating`, `priority`, `scope`, `return`
 
 **Note:** Ensure you share your Google Sheet with your `GOOGLE_SERVICE_ACCOUNT_EMAIL` and grant it **Editor** permissions.
 
