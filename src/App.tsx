@@ -9,7 +9,7 @@ import {
   MapPin, Search, Star, X, Plus, Save, Loader2, Bed, RotateCcw, 
   Lock, LogIn, LogOut, Eye, Info, Trophy, Camera, Upload, Image as ImageIcon,
   Maximize2, ChevronLeft, ChevronRight, Calendar, Route as RouteIcon,
-  Navigation, Trash2, CheckSquare, Pencil
+  Navigation, Trash2, CheckSquare, Pencil, Moon, Sun
 } from 'lucide-react';
 import { 
   format, addMonths, subMonths, startOfMonth, endOfMonth, 
@@ -575,6 +575,11 @@ const PhotoModal = ({ item, isOpen, onClose, onUpload, appPassword, onExpand, on
 };
 
 const App = () => {
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    const savedTheme = localStorage.getItem('todo_tracker_theme');
+    if (savedTheme) return savedTheme === 'dark';
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+  });
   const [places, setPlaces] = useState<Place[]>([]);
   const [markers, setMarkers] = useState<MarkerData[]>([]);
   const [hotels, setHotels] = useState<Place[]>([]);
@@ -611,6 +616,12 @@ const App = () => {
   });
   const [countdown, setCountdown] = useState(0);
   const isOwner = Boolean(appPassword);
+
+  useEffect(() => {
+    localStorage.setItem('todo_tracker_theme', isDarkMode ? 'dark' : 'light');
+    document.documentElement.classList.toggle('theme-dark', isDarkMode);
+    document.documentElement.style.colorScheme = isDarkMode ? 'dark' : 'light';
+  }, [isDarkMode]);
 
   useEffect(() => {
     if (!lockoutUntil) { localStorage.removeItem('todo_tracker_lockout'); return; }
@@ -1142,7 +1153,7 @@ const App = () => {
   };
 
   return (
-    <div className={`flex flex-col h-screen bg-slate-50 font-sans text-slate-900 ${isResizing ? 'cursor-col-resize select-none' : ''}`}>
+    <div className={`flex flex-col h-screen bg-slate-50 font-sans text-slate-900 ${isDarkMode ? 'theme-dark' : ''} ${isResizing ? 'cursor-col-resize select-none' : ''}`}>
       {showSignIn && !isOwner && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[400] flex items-center justify-center p-4">
           <div className="bg-white p-8 rounded-3xl shadow-2xl w-full max-w-md space-y-6 border border-slate-100 text-center">
@@ -1164,14 +1175,24 @@ const App = () => {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3 sm:gap-4"><h1 className="text-lg sm:text-xl font-bold text-indigo-600">TODO Tracker</h1><div className="flex bg-slate-100 p-1 rounded-lg">{SCOPE_NAMES.map(scope => (<button key={scope} onClick={() => { setActiveScope(scope); setFilter('All'); setActiveRouteId(null); setMapTarget(null); }} className={`px-3 py-1 rounded-md text-xs sm:text-sm font-bold transition-all ${activeScope === scope ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}>{SCOPE_CONFIG[scope].label}</button>))}</div></div>
           <div className="flex items-center gap-2">
-            {!isOwner && <span className="hidden md:flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 bg-slate-100 px-2.5 py-1.5 rounded-lg"><Eye size={14} /> View only</span>}
+            <button
+              type="button"
+              onClick={() => setIsDarkMode(current => !current)}
+              className="h-8 w-8 shrink-0 flex items-center justify-center rounded-xl text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors"
+              title={isDarkMode ? 'Use light mode' : 'Use dark mode'}
+              aria-label={isDarkMode ? 'Use light mode' : 'Use dark mode'}
+              aria-pressed={isDarkMode}
+            >
+              {isDarkMode ? <Sun size={16} /> : <Moon size={16} />}
+            </button>
+            {!isOwner && <span className="hidden md:flex h-8 items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 bg-slate-100 px-2.5 rounded-lg"><Eye size={14} /> View only</span>}
             {isOwner ? (
               <>
-                <button onClick={() => { setFilter('Journeys'); setIsJourneyMode(true); setSelectedJourneyPlaces([]); setJourneyName(''); setJourneySortMode('shortest'); setActiveRouteId(null); if (windowWidth < 640) setView('list'); }} className="flex items-center gap-2 bg-indigo-600 text-white px-3 py-1.5 rounded-xl text-xs font-bold hover:bg-indigo-700 transition-all shadow-md active:scale-95"><Navigation size={14} fill="currentColor" /><span className="hidden sm:inline">New Journey</span></button>
-                <button onClick={signOut} className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200" title="Sign out"><LogOut size={14} /><span className="hidden sm:inline">Sign out</span></button>
+                <button onClick={() => { setFilter('Journeys'); setIsJourneyMode(true); setSelectedJourneyPlaces([]); setJourneyName(''); setJourneySortMode('shortest'); setActiveRouteId(null); if (windowWidth < 640) setView('list'); }} className="h-8 flex items-center gap-2 bg-indigo-600 text-white px-3 rounded-xl text-xs font-bold hover:bg-indigo-700 transition-all shadow-md active:scale-95"><Navigation size={14} fill="currentColor" /><span className="hidden sm:inline">New Journey</span></button>
+                <button onClick={signOut} className="h-8 flex items-center gap-1.5 px-3 rounded-xl text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200" title="Sign out"><LogOut size={14} /><span className="hidden sm:inline">Sign out</span></button>
               </>
             ) : (
-              <button onClick={() => { setIsAuthError(false); setShowSignIn(true); }} className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100"><LogIn size={14} /> Owner sign in</button>
+              <button onClick={() => { setIsAuthError(false); setShowSignIn(true); }} className="h-8 flex items-center gap-1.5 px-3 rounded-xl text-xs font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100"><LogIn size={14} /> Owner sign in</button>
             )}
           </div>
         </div>
@@ -1612,7 +1633,10 @@ const App = () => {
           )}
 
           <MapContainer key={activeScope} center={SCOPE_CONFIG[activeScope].center} zoom={SCOPE_CONFIG[activeScope].zoom} className="h-full w-full z-0">
-            <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' />
+            <TileLayer
+              url={isDarkMode ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png' : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'}
+              attribution={isDarkMode ? '&copy; OpenStreetMap contributors &copy; CARTO' : '&copy; OpenStreetMap contributors'}
+            />
             <MapController 
               center={mapTarget?.center} 
               zoom={mapTarget?.zoom} 
