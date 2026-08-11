@@ -10,7 +10,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (!password) return res.status(500).json({ error: 'Server configuration error: PASSWORD not set.' });
   const authHeader = req.headers.authorization;
-  if (authHeader !== password) {
+  const isOwner = authHeader === password;
+
+  // Reading is public. Any mutation still requires the owner password.
+  // If a caller supplies a credential, reject it when invalid so the UI can
+  // distinguish a failed owner sign-in from an anonymous view-only request.
+  if ((req.method !== 'GET' && !isOwner) || (req.method === 'GET' && authHeader && !isOwner)) {
     await new Promise(resolve => setTimeout(resolve, 1500));
     return res.status(401).json({ error: 'Unauthorized: Incorrect password.' });
   }
@@ -38,13 +43,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const hotelsSheet = doc.sheetsByTitle['Hotels'];
     const lockedSheet = doc.sheetsByTitle['Locked'];
     const photosSheet = doc.sheetsByTitle['Photos'];
+
+    const ensurePriorityColumn = async (sheet: any) => {
+      if (!sheet) return;
+      await sheet.loadHeaderRow();
+      if (!sheet.headerValues.includes('priority')) {
+        await sheet.setHeaderRow([...sheet.headerValues, 'priority']);
+      }
+    };
+
+    if (isOwner) {
+      await Promise.all([ensurePriorityColumn(placesSheet), ensurePriorityColumn(hotelsSheet)]);
+    }
     
     let routesSheet = doc.sheetsByTitle['Routes'];
     if (!routesSheet && req.method === 'POST' && req.body.type === 'route') {
       routesSheet = await doc.addSheet({ title: 'Routes', headerValues: ['id', 'name', 'placeIds', 'scope'] });
     }
 
-    if (lockedSheet) {
+    if (lockedSheet && isOwner) {
       const lockRows = await lockedSheet.getRows();
       const lockRow = lockRows[0];
       if (lockRow) {
@@ -88,6 +105,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           status: row.get('status') || 'To Do',
           notes: row.get('notes') || '',
           rating: row.get('rating') || '',
+          priority: placesSheet?.headerValues.includes('priority') ? row.get('priority') || '' : '',
           scope: row.get('scope') || 'Austin',
           return: row.get('return') || '',
           details: row.get('details') || '',
@@ -119,6 +137,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           status: row.get('status') || 'To Do',
           notes: row.get('notes') || '',
           rating: row.get('rating') || '',
+          priority: hotelsSheet?.headerValues.includes('priority') ? row.get('priority') || '' : '',
           scope: row.get('scope') || 'Austin',
           return: row.get('return') || '',
           date: row.get('date') || '',
@@ -137,7 +156,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (req.method === 'POST') {
-      const { id, status, rating, notes, name, category, address, lat, lng, scope, return: returnFlag, details, photoUrl, date, type = 'place', placeIds, action } = req.body;
+      const { id, status, rating, priority, notes, name, category, address, lat, lng, scope, return: returnFlag, details, photoUrl, date, type = 'place', placeIds, action } = req.body;
       
       if (photoUrl && id && photosSheet) {
         await photosSheet.addRow({
@@ -173,6 +192,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       const targetSheet = type === 'hotel' ? hotelsSheet : placesSheet;
       if (!targetSheet) return res.status(404).json({ error: 'Sheet not found' });
+      await ensurePriorityColumn(targetSheet);
       const rows = await targetSheet.getRows();
       
       if (id) {
@@ -201,6 +221,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           if (lng !== undefined) row.set('lng', String(lng));
           if (status !== undefined) row.set('status', status);
           if (rating !== undefined) row.set('rating', rating);
+          if (priority !== undefined) row.set('priority', /^[1-5]$/.test(String(priority)) ? String(priority) : '');
           if (notes !== undefined) row.set('notes', notes);
           if (scope !== undefined) row.set('scope', scope);
           if (returnFlag !== undefined) row.set('return', returnFlag ? 'TRUE' : 'FALSE');
@@ -216,12 +237,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (type === 'hotel') {
         await targetSheet.addRow({
           id: newId, name: name || 'New Hotel', address: address || '', lat: String(lat || 0), lng: String(lng || 0),
-          status: 'To Do', notes: notes || '', rating: '', scope: scope || 'Austin', return: '', date: ''
+          status: 'To Do', notes: notes || '', rating: '', priority: '', scope: scope || 'Austin', return: '', date: ''
         });
       } else {
         await targetSheet.addRow({
           id: newId, category: category || 'Other', name: name || 'New Place', address: address || '', lat: String(lat || 0), lng: String(lng || 0),
-          status: 'To Do', notes: notes || '', rating: '', scope: scope || 'Austin', return: '', details: details || '', date: ''
+          status: 'To Do', notes: notes || '', rating: '', priority: '', scope: scope || 'Austin', return: '', details: details || '', date: ''
         });
       }
       return res.status(200).json({ success: true, id: newId });
