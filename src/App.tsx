@@ -109,6 +109,12 @@ const SCOPE_CONFIG = {
 type ScopeName = keyof typeof SCOPE_CONFIG;
 const SCOPE_NAMES = Object.keys(SCOPE_CONFIG) as ScopeName[];
 
+const OPENSTREETMAP_TILE_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+const cartoApiKey = import.meta.env.VITE_CARTO_API_KEY?.trim();
+const DARK_MAP_TILE_URL = cartoApiKey
+  ? `https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png?key=${encodeURIComponent(cartoApiKey)}`
+  : OPENSTREETMAP_TILE_URL;
+
 // Map Controller Component
 const MapController = ({ center, zoom, sidebarWidth, windowWidth, view, bounds }: any) => {
   const map = useMap();
@@ -1634,8 +1640,10 @@ const App = () => {
 
           <MapContainer key={activeScope} center={SCOPE_CONFIG[activeScope].center} zoom={SCOPE_CONFIG[activeScope].zoom} className="h-full w-full z-0">
             <TileLayer
-              url={isDarkMode ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png' : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'}
-              attribution={isDarkMode ? '&copy; OpenStreetMap contributors &copy; CARTO' : '&copy; OpenStreetMap contributors'}
+              url={isDarkMode ? DARK_MAP_TILE_URL : OPENSTREETMAP_TILE_URL}
+              attribution={isDarkMode && cartoApiKey ? '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>' : '&copy; OpenStreetMap contributors'}
+              subdomains={isDarkMode && cartoApiKey ? 'abcd' : 'abc'}
+              maxZoom={20}
             />
             <MapController 
               center={mapTarget?.center} 
