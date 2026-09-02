@@ -35,7 +35,14 @@ SHEET_ID=your_google_sheet_id_from_url
 GOOGLE_SERVICE_ACCOUNT_EMAIL=your-service-account@project.iam.gserviceaccount.com
 GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nYourKeyContent\n-----END PRIVATE KEY-----\n"
 PASSWORD=your_app_password_here
+VITE_CARTO_API_KEY=your_carto_basemaps_api_key
 ```
+
+`VITE_CARTO_API_KEY` enables CARTO's dark basemap. Request a free key from
+[CARTO Basemaps](https://carto.com/basemaps/apikey/) and add it to the Production,
+Preview, and Development environments in Vercel. Because Vite embeds `VITE_`
+variables in the browser bundle, this key is public client configuration rather
+than a server-side secret. Without it, the app falls back to OpenStreetMap tiles.
 
 ## 📊 Google Sheets Setup
 
