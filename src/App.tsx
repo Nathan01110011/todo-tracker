@@ -1641,7 +1641,9 @@ const App = () => {
           <MapContainer key={activeScope} center={SCOPE_CONFIG[activeScope].center} zoom={SCOPE_CONFIG[activeScope].zoom} className="h-full w-full z-0">
             <TileLayer
               url={isDarkMode ? DARK_MAP_TILE_URL : OPENSTREETMAP_TILE_URL}
-              attribution={isDarkMode && cartoApiKey ? '&copy; OpenStreetMap contributors &copy; CARTO' : '&copy; OpenStreetMap contributors'}
+              attribution={isDarkMode && cartoApiKey ? '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>' : '&copy; OpenStreetMap contributors'}
+              subdomains={isDarkMode && cartoApiKey ? 'abcd' : 'abc'}
+              maxZoom={20}
             />
             <MapController 
               center={mapTarget?.center} 
