@@ -1003,7 +1003,9 @@ const App = () => {
       if (!activeRouteId) return [];
       const route = routes.find(r => r.id === activeRouteId);
       if (!route) return [];
-      return scopePlaces.filter(p => route.placeIds.includes(p.id));
+      return scopePlaces.filter(p =>
+        route.placeIds.includes(`place:${p.id}`) || route.placeIds.includes(p.id)
+      );
     }
     if (filter === 'Hotels' || filter === 'Saved') return [];
     return scopePlaces.filter(p => p.category === filter && p.status === 'To Do');
@@ -1020,7 +1022,7 @@ const App = () => {
       if (!activeRouteId) return [];
       const route = routes.find(r => r.id === activeRouteId);
       if (!route) return [];
-      return scopeHotels.filter(h => route.placeIds.includes(h.id));
+      return scopeHotels.filter(h => route.placeIds.includes(`hotel:${h.id}`));
     }
     if (filter === 'Hotels') return scopeHotels.filter(h => h.status === 'To Do');
     if (filter === 'Visited') {
