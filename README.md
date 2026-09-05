@@ -44,6 +44,9 @@ Preview, and Development environments in Vercel. Because Vite embeds `VITE_`
 variables in the browser bundle, this key is public client configuration rather
 than a server-side secret. Without it, the app falls back to OpenStreetMap tiles.
 
+Vercel Preview deployments require these variables to be enabled for the Preview
+environment. Redeploy after changing environment-variable assignments.
+
 ## 📊 Google Sheets Setup
 
 Your spreadsheet requires three tabs (sheets) with specific headers:
