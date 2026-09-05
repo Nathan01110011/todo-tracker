@@ -44,16 +44,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const lockedSheet = doc.sheetsByTitle['Locked'];
     const photosSheet = doc.sheetsByTitle['Photos'];
 
-    const ensurePriorityColumn = async (sheet: any) => {
+    const ensurePlaceColumns = async (sheet: any, includeEventDates = false) => {
       if (!sheet) return;
       await sheet.loadHeaderRow();
-      if (!sheet.headerValues.includes('priority')) {
-        await sheet.setHeaderRow([...sheet.headerValues, 'priority']);
+      const requiredColumns = includeEventDates ? ['priority', 'eventStartDate', 'eventEndDate'] : ['priority'];
+      const missingColumns = requiredColumns.filter(column => !sheet.headerValues.includes(column));
+      if (missingColumns.length > 0) {
+        await sheet.setHeaderRow([...sheet.headerValues, ...missingColumns]);
       }
     };
 
     if (isOwner) {
-      await Promise.all([ensurePriorityColumn(placesSheet), ensurePriorityColumn(hotelsSheet)]);
+      await Promise.all([ensurePlaceColumns(placesSheet, true), ensurePlaceColumns(hotelsSheet)]);
     }
     
     let routesSheet = doc.sheetsByTitle['Routes'];
@@ -110,6 +112,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           return: row.get('return') || '',
           details: row.get('details') || '',
           date: row.get('date') || '',
+          eventStartDate: placesSheet?.headerValues.includes('eventStartDate') ? row.get('eventStartDate') || '' : '',
+          eventEndDate: placesSheet?.headerValues.includes('eventEndDate') ? row.get('eventEndDate') || '' : '',
           photos: (photoMap[id] || []).join(','),
         };
       });
@@ -156,7 +160,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (req.method === 'POST') {
-      const { id, status, rating, priority, notes, name, category, address, lat, lng, scope, return: returnFlag, details, photoUrl, date, type = 'place', placeIds, action } = req.body;
+      const { id, status, rating, priority, notes, name, category, address, lat, lng, scope, return: returnFlag, details, photoUrl, date, eventStartDate, eventEndDate, type = 'place', placeIds, action } = req.body;
       
       if (photoUrl && id && photosSheet) {
         await photosSheet.addRow({
@@ -192,7 +196,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       const targetSheet = type === 'hotel' ? hotelsSheet : placesSheet;
       if (!targetSheet) return res.status(404).json({ error: 'Sheet not found' });
-      await ensurePriorityColumn(targetSheet);
+      await ensurePlaceColumns(targetSheet, type !== 'hotel');
       const rows = await targetSheet.getRows();
       
       if (id) {
@@ -227,6 +231,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           if (returnFlag !== undefined) row.set('return', returnFlag ? 'TRUE' : 'FALSE');
           if (details !== undefined) row.set('details', details);
           if (date !== undefined) row.set('date', date);
+          if (eventStartDate !== undefined && type !== 'hotel') row.set('eventStartDate', eventStartDate);
+          if (eventEndDate !== undefined && type !== 'hotel') row.set('eventEndDate', eventEndDate);
           await row.save();
           return res.status(200).json({ success: true });
         }
@@ -242,7 +248,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       } else {
         await targetSheet.addRow({
           id: newId, category: category || 'Other', name: name || 'New Place', address: address || '', lat: String(lat || 0), lng: String(lng || 0),
-          status: 'To Do', notes: notes || '', rating: '', priority: '', scope: scope || 'Austin', return: '', details: details || '', date: ''
+          status: 'To Do', notes: notes || '', rating: '', priority: '', scope: scope || 'Austin', return: '', details: details || '', date: '',
+          eventStartDate: eventStartDate || '', eventEndDate: eventEndDate || ''
         });
       }
       return res.status(200).json({ success: true, id: newId });
