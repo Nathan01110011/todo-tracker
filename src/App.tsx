@@ -1562,7 +1562,7 @@ const App = () => {
                                   )}
                                   <h3 className={`font-semibold text-base md:text-sm truncate transition-colors ${hoveredId === `${item.type}:${item.id}` ? 'text-indigo-600' : ''}`}>{item.name}</h3>
                                 </div>
-                                {item.details && <p className="text-xs md:text-[10px] text-indigo-500 font-medium italic mt-0.5">{item.details}</p>}
+                                {item.details && <p className="text-base md:text-sm text-indigo-500 font-medium italic mt-0.5">{item.details}</p>}
                                 {item.category === 'Events' && item.eventStartDate && <p className="text-xs md:text-[10px] text-rose-600 font-bold mt-1 flex items-center gap-1"><Calendar size={12} /> {formatEventDateRange(item.eventStartDate, item.eventEndDate)}</p>}
                                 <p className="text-sm md:text-[11px] text-slate-500 truncate mt-1">{item.address}</p>
                               </div>
@@ -1639,7 +1639,7 @@ const App = () => {
                             )}
                           </div>
                           <h3 className={`font-semibold text-base md:text-sm truncate transition-colors ${hoveredId === `${item.type}:${item.id}` ? 'text-indigo-600' : ''}`}>{item.name}</h3>
-                          {item.details && <p className="text-[10px] text-indigo-500 font-medium italic flex items-center gap-1"><Info size={12}/> {item.details}</p>}
+                          {item.details && <p className="text-base md:text-sm text-indigo-500 font-medium italic flex items-center gap-1"><Info size={16}/> {item.details}</p>}
                           {item.category === 'Events' && item.eventStartDate && <p className="text-[10px] text-rose-600 font-bold flex items-center gap-1 mt-1"><Calendar size={12} /> {formatEventDateRange(item.eventStartDate, item.eventEndDate)}</p>}
                           <p className="text-sm md:text-[11px] text-slate-500 truncate mt-1">{item.address}</p>
                           <div className="flex items-center gap-2 mt-2">
@@ -1712,7 +1712,7 @@ const App = () => {
                 {(hoveredItem as any).status === 'Visited' && <CheckCircle2 size={16} className="text-green-500 shrink-0" />}
               </div>
               <p className="text-[10px] text-slate-500 mb-3 truncate">{(hoveredItem as any).address}</p>
-              {(hoveredItem as any).details && <p className="text-[10px] text-indigo-600 font-medium italic mb-3 bg-indigo-50/50 p-2 rounded-lg leading-relaxed">{(hoveredItem as any).details}</p>}
+              {(hoveredItem as any).details && <p className="text-sm text-indigo-600 font-medium italic mb-3 bg-indigo-50/50 p-2 rounded-lg leading-relaxed">{(hoveredItem as any).details}</p>}
               {(hoveredItem as any).category === 'Events' && (hoveredItem as any).eventStartDate && <p className="text-[10px] text-rose-600 font-bold mb-3 flex items-center gap-1"><Calendar size={12} /> {formatEventDateRange((hoveredItem as any).eventStartDate, (hoveredItem as any).eventEndDate)}</p>}
               {(hoveredItem as any).photos && <div className="rounded-xl overflow-hidden mb-3 ring-1 ring-slate-100"><img src={(hoveredItem as any).photos.split(',')[0]} className="w-full h-32 object-cover" alt="" /></div>}
               {(hoveredItem as any).rating && (
