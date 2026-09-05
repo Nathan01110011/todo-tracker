@@ -49,7 +49,7 @@ than a server-side secret. Without it, the app falls back to OpenStreetMap tiles
 Your spreadsheet requires three tabs (sheets) with specific headers:
 
 ### Sheet 1: "Places" (Index 0)
-`id`, `category`, `name`, `address`, `lat`, `lng`, `status`, `notes`, `rating`, `priority`, `scope`, `return`
+`id`, `category`, `name`, `address`, `lat`, `lng`, `status`, `notes`, `rating`, `priority`, `scope`, `return`, `details`, `date`, `eventStartDate`, `eventEndDate`
 
 ### Sheet 2: "Markers" (Index 1)
 `id`, `type`, `name`, `address`, `lat`, `lng`, `notes`, `scope`
