@@ -11,6 +11,8 @@ A modern, interactive relocation and travel tracker built with React, TypeScript
 - **🗺️ Multiple Scopes**: Toggle between Austin, Texas, USA, and UK & Ireland views with automatic map zooming and filtering.
 - **🏨 Hotel Tracking**: A dedicated section for tracking accommodations separate from destinations.
 - **🔍 Smart Search**: Add new locations instantly using Nominatim (OpenStreetMap) search.
+- **🧳 Trips**: Build ordered routes or flexible unordered city breaks, check off stops as you go, and complete a trip without marking skipped places as visited.
+- **📖 Diary**: Log activities for today or earlier, attach tracker locations or arbitrary places, and capture the current location with browser geolocation.
 - **✅ Visited History**:
   - Grouped by category.
   - 1-5 Star Ratings.
@@ -59,6 +61,16 @@ Your spreadsheet requires three tabs (sheets) with specific headers:
 
 ### Sheet 3: "Hotels" (Index 2)
 `id`, `name`, `address`, `lat`, `lng`, `status`, `notes`, `rating`, `priority`, `scope`, `return`
+
+### Sheet 6: "Routes"
+`id`, `name`, `placeIds`, `scope`, `tripType`, `completedPlaceIds`, `status`
+
+Existing Routes rows are treated as ordered, planned trips. Missing Trip columns are added automatically after an authenticated request.
+
+### "Diary"
+`id`, `date`, `title`, `notes`, `placeId`, `placeType`, `name`, `address`, `lat`, `lng`, `scope`, `createdAt`
+
+The Diary sheet is created automatically when the first authenticated entry is saved.
 
 **Note:** Ensure you share your Google Sheet with your `GOOGLE_SERVICE_ACCOUNT_EMAIL` and grant it **Editor** permissions.
 

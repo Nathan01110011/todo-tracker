@@ -43,6 +43,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const hotelsSheet = doc.sheetsByTitle['Hotels'];
     const lockedSheet = doc.sheetsByTitle['Locked'];
     const photosSheet = doc.sheetsByTitle['Photos'];
+    let diarySheet = doc.sheetsByTitle['Diary'];
 
     const ensurePlaceColumns = async (sheet: any, includeEventDates = false) => {
       if (!sheet) return;
@@ -60,7 +61,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     
     let routesSheet = doc.sheetsByTitle['Routes'];
     if (!routesSheet && req.method === 'POST' && req.body.type === 'route') {
-      routesSheet = await doc.addSheet({ title: 'Routes', headerValues: ['id', 'name', 'placeIds', 'scope'] });
+      routesSheet = await doc.addSheet({ title: 'Routes', headerValues: ['id', 'name', 'placeIds', 'scope', 'tripType', 'completedPlaceIds', 'status'] });
+    }
+
+    if (routesSheet && isOwner) {
+      await routesSheet.loadHeaderRow();
+      const requiredRouteColumns = ['tripType', 'completedPlaceIds', 'status'];
+      const missingRouteColumns = requiredRouteColumns.filter(column => !routesSheet.headerValues.includes(column));
+      if (missingRouteColumns.length > 0) {
+        await routesSheet.setHeaderRow([...routesSheet.headerValues, ...missingRouteColumns]);
+      }
+    }
+
+    if (!diarySheet && req.method === 'POST' && req.body.type === 'diary') {
+      diarySheet = await doc.addSheet({
+        title: 'Diary',
+        headerValues: ['id', 'date', 'title', 'notes', 'placeId', 'placeType', 'name', 'address', 'lat', 'lng', 'scope', 'createdAt']
+      });
     }
 
     if (lockedSheet && isOwner) {
@@ -77,12 +94,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (req.method === 'GET') {
-      const [placesRows, markersRows, hotelsRows, photoRows, routeRows] = await Promise.all([
+      const [placesRows, markersRows, hotelsRows, photoRows, routeRows, diaryRows] = await Promise.all([
         placesSheet ? placesSheet.getRows() : Promise.resolve([]),
         markersSheet ? markersSheet.getRows() : Promise.resolve([]),
         hotelsSheet ? hotelsSheet.getRows() : Promise.resolve([]),
         photosSheet ? photosSheet.getRows() : Promise.resolve([]),
-        routesSheet ? routesSheet.getRows() : Promise.resolve([])
+        routesSheet ? routesSheet.getRows() : Promise.resolve([]),
+        diarySheet ? diarySheet.getRows() : Promise.resolve([])
       ]);
 
       const photoMap: Record<string, string[]> = {};
@@ -151,16 +169,34 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       const routes = (routeRows || []).map(row => ({
         id: row.get('id') || '',
-        name: row.get('name') || 'Untitled Route',
+        name: row.get('name') || 'Untitled Trip',
         placeIds: (row.get('placeIds') || '').split(',').filter(Boolean),
         scope: row.get('scope') || 'Austin',
+        tripType: row.get('tripType') === 'unordered' ? 'unordered' : 'ordered',
+        completedPlaceIds: (row.get('completedPlaceIds') || '').split(',').filter(Boolean),
+        status: ['active', 'completed'].includes(row.get('status')) ? row.get('status') : 'planned',
       }));
 
-      return res.status(200).json({ places, markers, hotels, routes });
+      const diaryEntries = (diaryRows || []).map(row => ({
+        id: row.get('id') || '',
+        date: row.get('date') || '',
+        title: row.get('title') || row.get('name') || 'Diary entry',
+        notes: row.get('notes') || '',
+        placeId: row.get('placeId') || '',
+        placeType: row.get('placeType') || '',
+        name: row.get('name') || '',
+        address: row.get('address') || '',
+        lat: parseFloat(row.get('lat')) || 0,
+        lng: parseFloat(row.get('lng')) || 0,
+        scope: row.get('scope') || 'Austin',
+        createdAt: row.get('createdAt') || '',
+      }));
+
+      return res.status(200).json({ places, markers, hotels, routes, diaryEntries });
     }
 
     if (req.method === 'POST') {
-      const { id, status, rating, priority, notes, name, category, address, lat, lng, scope, return: returnFlag, details, photoUrl, date, eventStartDate, eventEndDate, type = 'place', placeIds, action } = req.body;
+      const { id, status, rating, priority, notes, name, title, category, address, lat, lng, scope, return: returnFlag, details, photoUrl, date, eventStartDate, eventEndDate, type = 'place', placeId, placeType, placeIds, tripType, completedPlaceIds, action } = req.body;
       
       if (photoUrl && id && photosSheet) {
         await photosSheet.addRow({
@@ -170,26 +206,72 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(200).json({ success: true });
       }
 
+      if (type === 'diary') {
+        if (!diarySheet) return res.status(404).json({ error: 'Diary sheet not found' });
+        if (id) {
+          const rows = await diarySheet.getRows();
+          const row = rows.find(r => r.get('id') === id);
+          if (!row) return res.status(404).json({ error: 'Diary entry not found' });
+          if (action === 'delete') {
+            await row.delete();
+            return res.status(200).json({ success: true });
+          }
+          return res.status(400).json({ error: 'Unsupported diary action' });
+        }
+
+        const today = new Date().toISOString().slice(0, 10);
+        const entryDate = date || today;
+        if (entryDate > today) return res.status(400).json({ error: 'Diary entries cannot be dated in the future' });
+        const newId = Math.random().toString(36).substr(2, 9);
+        await diarySheet.addRow({
+          id: newId,
+          date: entryDate,
+          title: title || name || 'Diary entry',
+          notes: notes || '',
+          placeId: placeId || '',
+          placeType: placeType || '',
+          name: name || '',
+          address: address || '',
+          lat: String(lat || 0),
+          lng: String(lng || 0),
+          scope: scope || 'Austin',
+          createdAt: new Date().toISOString()
+        });
+        return res.status(200).json({ success: true, id: newId });
+      }
+
       if (type === 'route') {
         if (!routesSheet) return res.status(404).json({ error: 'Routes sheet not found' });
         
         if (id) {
-          // Handle deletion
           const rows = await routesSheet.getRows();
           const row = rows.find(r => r.get('id') === id);
           if (row) {
-            await row.delete();
+            if (action === 'delete') {
+              await row.delete();
+              return res.status(200).json({ success: true });
+            }
+            if (name !== undefined) row.set('name', name);
+            if (placeIds !== undefined) row.set('placeIds', (placeIds || []).join(','));
+            if (scope !== undefined) row.set('scope', scope);
+            if (tripType !== undefined) row.set('tripType', tripType === 'unordered' ? 'unordered' : 'ordered');
+            if (completedPlaceIds !== undefined) row.set('completedPlaceIds', (completedPlaceIds || []).join(','));
+            if (status !== undefined) row.set('status', ['planned', 'active', 'completed'].includes(status) ? status : 'planned');
+            await row.save();
             return res.status(200).json({ success: true });
           }
-          return res.status(404).json({ error: 'Route not found' });
+          return res.status(404).json({ error: 'Trip not found' });
         }
 
         const newId = Math.random().toString(36).substr(2, 9);
         await routesSheet.addRow({
           id: newId,
-          name: name || 'New Route',
+          name: name || 'New Trip',
           placeIds: (placeIds || []).join(','),
-          scope: scope || 'Austin'
+          scope: scope || 'Austin',
+          tripType: tripType === 'unordered' ? 'unordered' : 'ordered',
+          completedPlaceIds: '',
+          status: 'planned'
         });
         return res.status(200).json({ success: true, id: newId });
       }
@@ -211,6 +293,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                   .filter(Boolean)
                   .filter((placeId: string) => placeId !== `${type}:${id}` && placeId !== id);
                 routeRow.set('placeIds', nextPlaceIds.join(','));
+                const nextCompletedPlaceIds = (routeRow.get('completedPlaceIds') || '')
+                  .split(',')
+                  .filter(Boolean)
+                  .filter((placeId: string) => placeId !== `${type}:${id}` && placeId !== id);
+                if (routesSheet.headerValues.includes('completedPlaceIds')) routeRow.set('completedPlaceIds', nextCompletedPlaceIds.join(','));
                 await routeRow.save();
               }));
             }
