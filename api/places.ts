@@ -60,7 +60,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     
     let routesSheet = doc.sheetsByTitle['Routes'];
     if (!routesSheet && req.method === 'POST' && req.body.type === 'route') {
-      routesSheet = await doc.addSheet({ title: 'Routes', headerValues: ['id', 'name', 'placeIds', 'scope'] });
+      routesSheet = await doc.addSheet({ title: 'Routes', headerValues: ['id', 'name', 'placeIds', 'scope', 'tripType', 'completedPlaceIds', 'status'] });
+    }
+
+    if (routesSheet && isOwner) {
+      await routesSheet.loadHeaderRow();
+      const requiredRouteColumns = ['tripType', 'completedPlaceIds', 'status'];
+      const missingRouteColumns = requiredRouteColumns.filter(column => !routesSheet.headerValues.includes(column));
+      if (missingRouteColumns.length > 0) {
+        await routesSheet.setHeaderRow([...routesSheet.headerValues, ...missingRouteColumns]);
+      }
     }
 
     if (lockedSheet && isOwner) {
@@ -151,16 +160,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       const routes = (routeRows || []).map(row => ({
         id: row.get('id') || '',
-        name: row.get('name') || 'Untitled Route',
+        name: row.get('name') || 'Untitled Trip',
         placeIds: (row.get('placeIds') || '').split(',').filter(Boolean),
         scope: row.get('scope') || 'Austin',
+        tripType: row.get('tripType') === 'unordered' ? 'unordered' : 'ordered',
+        completedPlaceIds: (row.get('completedPlaceIds') || '').split(',').filter(Boolean),
+        status: ['active', 'completed'].includes(row.get('status')) ? row.get('status') : 'planned',
       }));
 
       return res.status(200).json({ places, markers, hotels, routes });
     }
 
     if (req.method === 'POST') {
-      const { id, status, rating, priority, notes, name, category, address, lat, lng, scope, return: returnFlag, details, photoUrl, date, eventStartDate, eventEndDate, type = 'place', placeIds, action } = req.body;
+      const { id, status, rating, priority, notes, name, category, address, lat, lng, scope, return: returnFlag, details, photoUrl, date, eventStartDate, eventEndDate, type = 'place', placeIds, tripType, completedPlaceIds, action } = req.body;
       
       if (photoUrl && id && photosSheet) {
         await photosSheet.addRow({
@@ -174,22 +186,34 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (!routesSheet) return res.status(404).json({ error: 'Routes sheet not found' });
         
         if (id) {
-          // Handle deletion
           const rows = await routesSheet.getRows();
           const row = rows.find(r => r.get('id') === id);
           if (row) {
-            await row.delete();
+            if (action === 'delete') {
+              await row.delete();
+              return res.status(200).json({ success: true });
+            }
+            if (name !== undefined) row.set('name', name);
+            if (placeIds !== undefined) row.set('placeIds', (placeIds || []).join(','));
+            if (scope !== undefined) row.set('scope', scope);
+            if (tripType !== undefined) row.set('tripType', tripType === 'unordered' ? 'unordered' : 'ordered');
+            if (completedPlaceIds !== undefined) row.set('completedPlaceIds', (completedPlaceIds || []).join(','));
+            if (status !== undefined) row.set('status', ['planned', 'active', 'completed'].includes(status) ? status : 'planned');
+            await row.save();
             return res.status(200).json({ success: true });
           }
-          return res.status(404).json({ error: 'Route not found' });
+          return res.status(404).json({ error: 'Trip not found' });
         }
 
         const newId = Math.random().toString(36).substr(2, 9);
         await routesSheet.addRow({
           id: newId,
-          name: name || 'New Route',
+          name: name || 'New Trip',
           placeIds: (placeIds || []).join(','),
-          scope: scope || 'Austin'
+          scope: scope || 'Austin',
+          tripType: tripType === 'unordered' ? 'unordered' : 'ordered',
+          completedPlaceIds: '',
+          status: 'planned'
         });
         return res.status(200).json({ success: true, id: newId });
       }
@@ -211,6 +235,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                   .filter(Boolean)
                   .filter((placeId: string) => placeId !== `${type}:${id}` && placeId !== id);
                 routeRow.set('placeIds', nextPlaceIds.join(','));
+                const nextCompletedPlaceIds = (routeRow.get('completedPlaceIds') || '')
+                  .split(',')
+                  .filter(Boolean)
+                  .filter((placeId: string) => placeId !== `${type}:${id}` && placeId !== id);
+                if (routesSheet.headerValues.includes('completedPlaceIds')) routeRow.set('completedPlaceIds', nextCompletedPlaceIds.join(','));
                 await routeRow.save();
               }));
             }

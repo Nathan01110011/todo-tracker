@@ -5,7 +5,7 @@ import L from 'leaflet';
 import { renderToStaticMarkup } from 'react-dom/server';
 import 'leaflet/dist/leaflet.css';
 import { 
-  CheckCircle2, Circle, Map as MapIcon, List, Filter, Home, Briefcase, 
+  Check, CheckCircle2, Circle, Map as MapIcon, List, Filter, Home, Briefcase,
   MapPin, Search, Star, X, Plus, Save, Loader2, Bed, RotateCcw, 
   Lock, LogIn, LogOut, Eye, Info, Trophy, Camera, Upload, Image as ImageIcon,
   Maximize2, ChevronLeft, ChevronRight, Calendar, Route as RouteIcon,
@@ -85,6 +85,9 @@ interface Route {
   name: string;
   placeIds: string[];
   scope: string;
+  tripType: 'ordered' | 'unordered';
+  completedPlaceIds: string[];
+  status: 'planned' | 'active' | 'completed';
 }
 
 const SCOPE_CONFIG = {
@@ -670,6 +673,7 @@ const App = () => {
   const [isJourneyMode, setIsJourneyMode] = useState(false);
   const [selectedJourneyPlaces, setSelectedJourneyPlaces] = useState<string[]>([]);
   const [journeyName, setJourneyName] = useState('');
+  const [tripType, setTripType] = useState<'ordered' | 'unordered'>('ordered');
   const [journeySortMode, setJourneySortMode] = useState<'shortest' | 'added'>('shortest');
   const [activeRouteId, setActiveRouteId] = useState<string | null>(null);
   const [journeyFilter, setJourneyFilter] = useState('All');
@@ -793,7 +797,8 @@ const App = () => {
         const prevRoutes = [...routes];
         const removeFromRoutes = (route: Route) => ({
           ...route,
-          placeIds: route.placeIds.filter(placeId => placeId !== compositeId && placeId !== item.id)
+          placeIds: route.placeIds.filter(placeId => placeId !== compositeId && placeId !== item.id),
+          completedPlaceIds: route.completedPlaceIds.filter(placeId => placeId !== compositeId && placeId !== item.id)
         });
 
         if (type === 'hotel') setHotels(current => current.filter(h => h.id !== item.id));
@@ -934,6 +939,7 @@ const App = () => {
   };
 
   const getJourneyPathIds = (ids: string[]) => {
+    if (tripType === 'unordered') return ids;
     return journeySortMode === 'shortest' ? calculateOptimalPath(ids) : ids;
   };
 
@@ -955,22 +961,22 @@ const App = () => {
       const res = await fetch('/api/places', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': appPassword || '' },
-        body: JSON.stringify({ type: 'route', name: journeyName, placeIds: optimizedIds, scope: activeScope })
+        body: JSON.stringify({ type: 'route', name: journeyName, placeIds: optimizedIds, scope: activeScope, tripType })
       });
       const data = await res.json();
       if (data.success) {
-        setRoutes(prev => [...prev, { id: data.id, name: journeyName, placeIds: optimizedIds, scope: activeScope }]);
+        setRoutes(prev => [...prev, { id: data.id, name: journeyName, placeIds: optimizedIds, scope: activeScope, tripType, completedPlaceIds: [], status: 'planned' }]);
         setIsJourneyMode(false);
         setJourneyName('');
         setSelectedJourneyPlaces([]);
-        setFilter('Journeys');
+        setFilter('Trips');
         setActiveRouteId(data.id);
-        setToastMessage(`Route "${journeyName}" saved successfully!`);
+        setToastMessage(`Trip "${journeyName}" saved successfully!`);
       } else {
-        setError(data.error || "Failed to save route.");
+        setError(data.error || "Failed to save trip.");
       }
     } catch (err: any) {
-      setError(err.message || "Failed to save route.");
+      setError(err.message || "Failed to save trip.");
     } finally {
       setIsSavingRoute(false);
     }
@@ -979,24 +985,24 @@ const App = () => {
   const deleteRoute = async (id: string) => {
     if (!isOwner) return;
     setConfirmationDialog({
-      message: "Are you sure you want to delete this journey?",
+      message: "Are you sure you want to delete this trip?",
       onConfirm: async () => {
         setIsSavingRoute(true);
         try {
           const res = await fetch('/api/places', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': appPassword || '' },
-            body: JSON.stringify({ type: 'route', id })
+            body: JSON.stringify({ type: 'route', id, action: 'delete' })
           });
           if (res.ok) {
             setRoutes(prev => prev.filter(r => r.id !== id));
             if (activeRouteId === id) setActiveRouteId(null);
-            setToastMessage("Journey deleted successfully!");
+            setToastMessage("Trip deleted successfully!");
           } else {
-            setError("Failed to delete route.");
+            setError("Failed to delete trip.");
           }
         } catch (err) {
-          setError("Failed to delete route.");
+          setError("Failed to delete trip.");
         } finally {
           setIsSavingRoute(false);
         }
@@ -1005,24 +1011,62 @@ const App = () => {
     });
   };
 
+  const updateRoute = async (route: Route, updates: Partial<Route>) => {
+    const previousRoutes = routes;
+    setRoutes(current => current.map(item => item.id === route.id ? { ...item, ...updates } : item));
+    try {
+      const response = await fetch('/api/places', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': appPassword || '' },
+        body: JSON.stringify({ type: 'route', id: route.id, action: 'update', ...updates })
+      });
+      if (!response.ok) throw new Error('Failed to update trip');
+    } catch (error) {
+      setRoutes(previousRoutes);
+      setError('Failed to update trip. Reverting...');
+      setTimeout(() => setError(null), 3000);
+    }
+  };
+
+  const startTrip = async (route: Route) => {
+    await updateRoute(route, { status: 'active' });
+    setToastMessage(`Trip "${route.name}" started.`);
+  };
+
+  const toggleTripPlace = async (route: Route, compositeId: string) => {
+    if (!isOwner || route.status !== 'active') return;
+    const isComplete = route.completedPlaceIds.includes(compositeId);
+    const completedPlaceIds = isComplete
+      ? route.completedPlaceIds.filter(id => id !== compositeId)
+      : [...route.completedPlaceIds, compositeId];
+    const [type, id] = compositeId.includes(':') ? compositeId.split(':') : ['place', compositeId];
+    if (type === 'place' || type === 'hotel') {
+      await updatePlace(id, { status: isComplete ? 'To Do' : 'Visited', date: isComplete ? '' : format(new Date(), 'yyyy-MM-dd') }, type);
+    }
+    await updateRoute(route, { completedPlaceIds });
+  };
+
   const completeRoute = async (route: Route) => {
     if (!isOwner) return;
     setConfirmationDialog({
-      message: `Mark all locations in journey "${route.name}" as Visited?`,
+      message: `Complete trip "${route.name}"? Unchecked locations will remain in To Do.`,
       onConfirm: async () => {
-        const updates = route.placeIds.map(compositeId => {
-          const [type, id] = compositeId.split(':');
-          return updatePlace(id, { status: 'Visited' }, type as 'place' | 'hotel');
-        });
-
-        await Promise.all(updates);
-        setToastMessage(`Journey "${route.name}" completed!`);
+        const uncheckedUpdates = route.placeIds
+          .filter(compositeId => !route.completedPlaceIds.includes(compositeId))
+          .map(compositeId => {
+            const [type, id] = compositeId.includes(':') ? compositeId.split(':') : ['place', compositeId];
+            if (type !== 'place' && type !== 'hotel') return Promise.resolve();
+            return updatePlace(id, { status: 'To Do' }, type);
+          });
+        await Promise.all(uncheckedUpdates);
+        await updateRoute(route, { status: 'completed' });
+        setToastMessage(`Trip "${route.name}" completed!`);
       },
       onCancel: () => {}
     });
   };
 
-  const categories = ['TODO', 'Journeys', 'Events', 'Food', 'Drinks', 'Activities', 'Sport', 'Hotels', 'Saved', 'Visited', 'All'];
+  const categories = ['TODO', 'Trips', 'Events', 'Food', 'Drinks', 'Activities', 'Sport', 'Hotels', 'Saved', 'Visited', 'All'];
   const effectiveSidebarWidth = useMemo(() => { if (windowWidth < 640) return view === 'map' ? 0 : 100; if (view === 'map') return 0; if (filter === 'Visited') return 66.66; return sidebarWidth; }, [windowWidth, view, filter, sidebarWidth]);
 
   const filteredMarkers = useMemo(() => markers.filter(m => m.scope === activeScope), [markers, activeScope]);
@@ -1031,14 +1075,18 @@ const App = () => {
     let ids: string[] = [];
     if (isJourneyMode) {
       ids = getJourneyPathIds(selectedJourneyPlaces);
-    } else if (activeRouteId && filter === 'Journeys') {
+    } else if (activeRouteId && filter === 'Trips') {
       const route = routes.find(r => r.id === activeRouteId);
       if (route) ids = route.placeIds;
     }
     if (ids.length === 0) return [];
     
     return getJourneyItems(ids);
-  }, [isJourneyMode, selectedJourneyPlaces, activeRouteId, routes, places, hotels, markers, filter, journeySortMode]);
+  }, [isJourneyMode, selectedJourneyPlaces, activeRouteId, routes, places, hotels, markers, filter, journeySortMode, tripType]);
+
+  const showRouteLine = isJourneyMode
+    ? tripType === 'ordered'
+    : routes.find(route => route.id === activeRouteId)?.tripType !== 'unordered';
 
   const hoveredItem = useMemo(() => {
     if (!hoveredId) return null;
@@ -1077,7 +1125,7 @@ const App = () => {
     }
     if (filter === 'TODO') return scopePlaces.filter(p => p.status === 'To Do');
     if (filter === 'All') return scopePlaces;
-    if (filter === 'Journeys') {
+    if (filter === 'Trips') {
       if (!activeRouteId) return [];
       const route = routes.find(r => r.id === activeRouteId);
       if (!route) return [];
@@ -1096,7 +1144,7 @@ const App = () => {
       if (journeyFilter === 'Visited') return scopeHotels.filter(h => h.status === 'Visited');
       return scopeHotels;
     }
-    if (filter === 'Journeys') {
+    if (filter === 'Trips') {
       if (!activeRouteId) return [];
       const route = routes.find(r => r.id === activeRouteId);
       if (!route) return [];
@@ -1282,7 +1330,7 @@ const App = () => {
             {!isOwner && <span className="hidden md:flex h-8 items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 bg-slate-100 px-2.5 rounded-lg"><Eye size={14} /> View only</span>}
             {isOwner ? (
               <>
-                <button onClick={() => { setFilter('Journeys'); setIsJourneyMode(true); setSelectedJourneyPlaces([]); setJourneyName(''); setJourneySortMode('shortest'); setActiveRouteId(null); if (windowWidth < 640) setView('list'); }} className="h-8 flex items-center gap-2 bg-indigo-600 text-white px-3 rounded-xl text-xs font-bold hover:bg-indigo-700 transition-all shadow-md active:scale-95"><Navigation size={14} fill="currentColor" /><span className="hidden sm:inline">New Journey</span></button>
+                <button onClick={() => { setFilter('Trips'); setIsJourneyMode(true); setSelectedJourneyPlaces([]); setJourneyName(''); setTripType('ordered'); setJourneySortMode('shortest'); setActiveRouteId(null); if (windowWidth < 640) setView('list'); }} className="h-8 flex items-center gap-2 bg-indigo-600 text-white px-3 rounded-xl text-xs font-bold hover:bg-indigo-700 transition-all shadow-md active:scale-95"><Navigation size={14} fill="currentColor" /><span className="hidden sm:inline">New Trip</span></button>
                 <button onClick={signOut} className="h-8 flex items-center gap-1.5 px-3 rounded-xl text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200" title="Sign out"><LogOut size={14} /><span className="hidden sm:inline">Sign out</span></button>
               </>
             ) : (
@@ -1327,16 +1375,16 @@ const App = () => {
               </div>
             )}
           </section>}
-          {filter === 'Journeys' ? (
+          {filter === 'Trips' ? (
             <section className="space-y-6">
               <div className="flex items-center justify-between px-1">
-                <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Saved Journeys</h2>
+                <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Trips</h2>
                 {isOwner && !isJourneyMode && (
                   <button 
-                    onClick={() => { setIsJourneyMode(true); setSelectedJourneyPlaces([]); setJourneyName(''); setJourneySortMode('shortest'); setActiveRouteId(null); setJourneyFilter('All'); }}
+                    onClick={() => { setIsJourneyMode(true); setSelectedJourneyPlaces([]); setJourneyName(''); setTripType('ordered'); setJourneySortMode('shortest'); setActiveRouteId(null); setJourneyFilter('All'); }}
                     className="flex items-center gap-1.5 text-[10px] font-black text-indigo-600 bg-indigo-50 px-2.5 py-1.5 rounded-lg hover:bg-indigo-100 transition-colors uppercase tracking-wider"
                   >
-                    <Plus size={14} strokeWidth={3} /> New Journey
+                    <Plus size={14} strokeWidth={3} /> New Trip
                   </button>
                 )}
               </div>
@@ -1344,16 +1392,31 @@ const App = () => {
               {isJourneyMode && (
                 <div className="bg-indigo-600 p-4 rounded-2xl shadow-lg space-y-4 animate-in slide-in-from-top-4 duration-300">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-white font-bold text-sm flex items-center gap-2"><Navigation size={18} /> Creating Journey</h3>
+                    <h3 className="text-white font-bold text-sm flex items-center gap-2"><Navigation size={18} /> Creating Trip</h3>
                     <button onClick={() => setIsJourneyMode(false)} className="text-white/70 hover:text-white"><X size={20} /></button>
                   </div>
                   <input 
                     type="text" 
                     value={journeyName} 
                     onChange={(e) => setJourneyName(e.target.value)} 
-                    placeholder="Journey Name (e.g. Saturday Food Tour)"
+                    placeholder="Trip name (e.g. Dallas weekend)"
                     className="w-full px-3 py-2.5 bg-white/10 border border-white/20 rounded-xl text-white placeholder:text-white/50 outline-none focus:ring-2 focus:ring-white/30 text-sm"
                   />
+                  <div className="grid grid-cols-2 gap-1.5 p-1 bg-white/10 rounded-xl">
+                    {([
+                      { id: 'ordered', label: 'Ordered', description: 'Follow a planned route' },
+                      { id: 'unordered', label: 'Unordered', description: 'Complete in any order' }
+                    ] as const).map(option => (
+                      <button
+                        key={option.id}
+                        onClick={() => setTripType(option.id)}
+                        className={`p-2 rounded-lg text-left transition-all ${tripType === option.id ? 'bg-white text-indigo-600 shadow-sm' : 'text-white/60 hover:text-white'}`}
+                      >
+                        <span className="block text-[10px] font-black uppercase tracking-wider">{option.label}</span>
+                        <span className="block text-[9px] opacity-70 mt-0.5">{option.description}</span>
+                      </button>
+                    ))}
+                  </div>
                   <div className="flex gap-1.5 p-1 bg-white/10 rounded-xl">
                     {['All', 'To Do', 'Visited'].map(cat => (
                       <button 
@@ -1365,7 +1428,7 @@ const App = () => {
                       </button>
                     ))}
                   </div>
-                  <div className="flex gap-1.5 p-1 bg-white/10 rounded-xl">
+                  {tripType === 'ordered' && <div className="flex gap-1.5 p-1 bg-white/10 rounded-xl">
                     {[
                       { id: 'shortest', label: 'Shortest distance' },
                       { id: 'added', label: 'Order added' }
@@ -1378,16 +1441,18 @@ const App = () => {
                         {option.label}
                       </button>
                     ))}
-                  </div>
+                  </div>}
                   <div className="space-y-2">
                     <p className="text-white/70 text-[10px] font-bold uppercase tracking-widest">
-                      {journeySortMode === 'shortest' ? 'Start Point + Shortest Path' : 'Order Added'}: {selectedJourneyPlaces.length} points
+                      {tripType === 'unordered' ? 'Any order' : journeySortMode === 'shortest' ? 'Start Point + Shortest Path' : 'Order Added'}: {selectedJourneyPlaces.length} places
                     </p>
                     {selectedJourneyPlaces.length === 0 && (
                       <div className="bg-white/10 border border-white/15 rounded-xl p-3 text-white">
-                        <p className="text-xs font-black uppercase tracking-wider">Pick your start point first</p>
+                        <p className="text-xs font-black uppercase tracking-wider">{tripType === 'ordered' ? 'Pick your start point first' : 'Pick places for the trip'}</p>
                         <p className="text-[10px] text-white/60 mt-1 leading-snug">
-                          {journeySortMode === 'shortest'
+                          {tripType === 'unordered'
+                            ? 'There is no fixed route. Finish places in whichever order suits the day.'
+                            : journeySortMode === 'shortest'
                             ? 'After that, each new stop is ordered into the shortest available route from your start.'
                             : 'After that, stops stay in the exact order you add them.'}
                         </p>
@@ -1396,15 +1461,15 @@ const App = () => {
                     {currentRoutePoints.length > 0 && (
                       <div className="max-h-40 overflow-y-auto space-y-1.5 pr-1 no-scrollbar">
                         {currentRoutePoints.map((p, i) => (
-                          <div key={`${p.type}:${p.id}`} className={`flex items-center justify-between p-2 rounded-lg group/item ${i === 0 ? 'bg-white text-indigo-700 ring-2 ring-white/40' : 'bg-white/10'}`}>
+                          <div key={`${p.type}:${p.id}`} className={`flex items-center justify-between p-2 rounded-lg group/item ${tripType === 'ordered' && i === 0 ? 'bg-white text-indigo-700 ring-2 ring-white/40' : 'bg-white/10'}`}>
                             <div className="flex items-center gap-2 min-w-0">
-                              <span className={`text-[10px] font-black w-4 ${i === 0 ? 'text-indigo-300' : 'text-white/40'}`}>{i + 1}</span>
-                              <span className={`text-xs font-bold truncate ${i === 0 ? 'text-indigo-700' : 'text-white'}`}>{p.name}</span>
-                              {i === 0 && <span className="text-[8px] font-black uppercase tracking-widest bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full shrink-0">Start</span>}
+                              <span className={`text-[10px] font-black w-4 ${tripType === 'ordered' && i === 0 ? 'text-indigo-300' : 'text-white/40'}`}>{tripType === 'ordered' ? i + 1 : '•'}</span>
+                              <span className={`text-xs font-bold truncate ${tripType === 'ordered' && i === 0 ? 'text-indigo-700' : 'text-white'}`}>{p.name}</span>
+                              {tripType === 'ordered' && i === 0 && <span className="text-[8px] font-black uppercase tracking-widest bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full shrink-0">Start</span>}
                             </div>
                             <button 
                               onClick={() => toggleJourneyPlace(`${p.type}:${p.id}`)}
-                              className={`transition-colors ${i === 0 ? 'text-indigo-300 hover:text-indigo-700' : 'text-white/30 hover:text-white'}`}
+                              className={`transition-colors ${tripType === 'ordered' && i === 0 ? 'text-indigo-300 hover:text-indigo-700' : 'text-white/30 hover:text-white'}`}
                             >
                               <X size={14} />
                             </button>
@@ -1418,12 +1483,14 @@ const App = () => {
                         disabled={selectedJourneyPlaces.length === 0 || !journeyName || isSavingRoute}
                         className="flex-1 bg-white text-indigo-600 py-2 rounded-xl font-bold text-xs hover:bg-indigo-50 disabled:opacity-50 transition-all flex items-center justify-center gap-1"
                       >
-                        {isSavingRoute ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Save Route
+                        {isSavingRoute ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Save Trip
                       </button>
                     </div>
                   </div>
                   <p className="text-[9px] text-white/50 leading-tight">
-                    {journeySortMode === 'shortest'
+                    {tripType === 'unordered'
+                      ? 'Unchecked places stay at the top while you are taking the trip.'
+                      : journeySortMode === 'shortest'
                       ? 'Your first selection stays as the start point. The remaining stops are ordered by shortest path.'
                       : 'Your first selection stays as the start point. The remaining stops stay in the order you added them.'}
                   </p>
@@ -1437,7 +1504,7 @@ const App = () => {
                     {displayItems.map(item => {
                       const itemId = `${item.type}:${item.id}`;
                       const isSelected = selectedJourneyPlaces.includes(itemId);
-                      const isStart = selectedJourneyPlaces[0] === itemId;
+                      const isStart = tripType === 'ordered' && selectedJourneyPlaces[0] === itemId;
                       return (
                         <div 
                           key={itemId} 
@@ -1464,29 +1531,43 @@ const App = () => {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {routes.filter(r => r.scope === activeScope).map(route => (
-                    <div 
-                      key={route.id} 
-                      onClick={() => { setActiveRouteId(activeRouteId === route.id ? null : route.id); if (windowWidth < 640) setView('map'); }}
+                  {routes.filter(r => r.scope === activeScope).sort((a, b) => ({ active: 0, planned: 1, completed: 2 }[a.status] - { active: 0, planned: 1, completed: 2 }[b.status])).map(route => {
+                    const remainingIds = route.placeIds.filter(id => !route.completedPlaceIds.includes(id));
+                    const completedIds = route.placeIds.filter(id => route.completedPlaceIds.includes(id));
+                    const tripItems = getJourneyItems([...remainingIds, ...completedIds]);
+                    return <div
+                      key={route.id}
+                      onClick={() => setActiveRouteId(activeRouteId === route.id ? null : route.id)}
                       className={`p-4 rounded-xl border transition-all cursor-pointer group ${activeRouteId === route.id ? 'bg-indigo-50 border-indigo-200 ring-1 ring-indigo-200 shadow-sm' : 'bg-white border-slate-100 hover:border-indigo-100'}`}
                     >
                       <div className="flex justify-between items-start">
                         <div className="space-y-1">
                           <h3 className="font-bold text-sm text-slate-900 group-hover:text-indigo-600 transition-colors">{route.name}</h3>
-                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{route.placeIds.length} Destinations</p>
+                          <div className="flex flex-wrap items-center gap-1.5 text-[9px] font-black uppercase tracking-wider">
+                            <span className="text-slate-400">{route.completedPlaceIds.length}/{route.placeIds.length} complete</span>
+                            <span className="bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full">{route.tripType}</span>
+                            <span className={`px-1.5 py-0.5 rounded-full ${route.status === 'completed' ? 'bg-green-100 text-green-700' : route.status === 'active' ? 'bg-indigo-100 text-indigo-700' : 'bg-amber-100 text-amber-700'}`}>{route.status}</span>
+                          </div>
                         </div>
                         <div className="flex items-center gap-2">
-                          {isOwner && <button
+                          {isOwner && route.status === 'planned' && <button
+                            onClick={(e) => { e.stopPropagation(); startTrip(route); setActiveRouteId(route.id); }}
+                            className="px-2 py-1.5 text-[9px] font-black uppercase tracking-wider text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-all"
+                            title="Start Trip"
+                          >
+                            Start
+                          </button>}
+                          {isOwner && route.status === 'active' && <button
                             onClick={(e) => { e.stopPropagation(); completeRoute(route); }}
                             className="p-1.5 text-slate-300 hover:text-green-600 hover:bg-green-50 rounded-lg transition-all"
-                            title="Complete Journey"
+                            title="Complete Trip"
                           >
                             <CheckSquare size={18} />
                           </button>}
                           {isOwner && <button
                             onClick={(e) => { e.stopPropagation(); deleteRoute(route.id); }}
                             className="p-1.5 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                            title="Delete Journey"
+                            title="Delete Trip"
                             disabled={isSavingRoute}
                           >
                             {isSavingRoute ? <Loader2 size={18} className="animate-spin" /> : <Trash2 size={18} />}
@@ -1496,23 +1577,36 @@ const App = () => {
                       </div>
                       {activeRouteId === route.id && (
                         <div className="mt-4 pt-4 border-t border-indigo-100 space-y-3 animate-in fade-in duration-300">
-                          {currentRoutePoints.map((p, i) => (
-                            <div key={p.id} className="flex items-center gap-3">
-                              <div className="w-5 h-5 rounded-full bg-indigo-600 text-white text-[10px] font-black flex items-center justify-center shrink-0">{i + 1}</div>
-                              <div className="min-w-0">
-                                <p className="text-xs font-bold text-slate-700 truncate">{p.name}</p>
+                          {tripItems.map((p) => {
+                            const compositeId = `${p.type}:${p.id}`;
+                            const isComplete = route.completedPlaceIds.includes(compositeId);
+                            const orderedPosition = route.placeIds.indexOf(compositeId) + 1;
+                            return <button
+                              key={compositeId}
+                              type="button"
+                              disabled={!isOwner || route.status !== 'active'}
+                              onClick={(e) => { e.stopPropagation(); toggleTripPlace(route, compositeId); }}
+                              className={`w-full flex items-center gap-3 text-left rounded-lg p-1.5 transition-colors ${route.status === 'active' ? 'hover:bg-white' : 'cursor-default'} ${isComplete ? 'opacity-55' : ''}`}
+                            >
+                              <div className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 ${isComplete ? 'bg-green-600 border-green-600 text-white' : 'border-indigo-300 text-indigo-600'}`}>
+                                {isComplete ? <Check size={13} strokeWidth={3} /> : route.tripType === 'ordered' ? <span className="text-[9px] font-black">{orderedPosition}</span> : <Circle size={12} />}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className={`text-xs font-bold text-slate-700 truncate ${isComplete ? 'line-through' : ''}`}>{p.name}</p>
                                 <p className="text-[10px] text-slate-400 truncate">{p.address}</p>
                               </div>
-                            </div>
-                          ))}
+                            </button>;
+                          })}
+                          {route.status === 'planned' && <p className="text-[10px] text-slate-500 bg-white/70 rounded-lg p-2">Start this trip to check off places.</p>}
+                          {route.status === 'completed' && remainingIds.length > 0 && <p className="text-[10px] text-slate-500 bg-white/70 rounded-lg p-2">{remainingIds.length} unchecked {remainingIds.length === 1 ? 'place remains' : 'places remain'} in To Do.</p>}
                         </div>
                       )}
                     </div>
-                  ))}
+                  })}
                   {routes.filter(r => r.scope === activeScope).length === 0 && (
                     <div className="text-center py-10 text-slate-400">
                       <RouteIcon size={32} className="mx-auto mb-3 opacity-20" />
-                      <p className="text-sm font-medium">No journeys saved yet.</p>
+                      <p className="text-sm font-medium">No trips saved yet.</p>
                     </div>
                   )}
                 </div>
@@ -1526,14 +1620,14 @@ const App = () => {
                   <div 
                     key={m.id} 
                     onClick={() => { 
-                      if (isJourneyMode) { toggleJourneyPlace(m.id); return; }
+                      if (isJourneyMode) { toggleJourneyPlace(`marker:${m.id}`); return; }
                       const lat = parseFloat(m.lat as any); const lng = parseFloat(m.lng as any); 
                       if (!isNaN(lat)) { setMapTarget({ center: [lat, lng], zoom: 15 }); if (windowWidth < 640) setView('map'); } 
                     }} 
-                    className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${isJourneyMode && selectedJourneyPlaces.includes(m.id) ? 'bg-indigo-50 border-indigo-500 ring-2 ring-indigo-200' : 'bg-indigo-50/50 border-indigo-100 hover:bg-indigo-50'}`}
+                    className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${isJourneyMode && selectedJourneyPlaces.includes(`marker:${m.id}`) ? 'bg-indigo-50 border-indigo-500 ring-2 ring-indigo-200' : 'bg-indigo-50/50 border-indigo-100 hover:bg-indigo-50'}`}
                   >
                     <div className="text-indigo-600">
-                      {isJourneyMode && selectedJourneyPlaces.includes(m.id) ? <CheckCircle2 size={20} /> : (m.type === 'home' ? <Home size={20} /> : <Briefcase size={20} />)}
+                      {isJourneyMode && selectedJourneyPlaces.includes(`marker:${m.id}`) ? <CheckCircle2 size={20} /> : (m.type === 'home' ? <Home size={20} /> : <Briefcase size={20} />)}
                     </div>
                     <div className="min-w-0">
                       <h4 className="font-semibold text-sm truncate">{m.name}</h4>
@@ -1755,7 +1849,7 @@ const App = () => {
               windowWidth={windowWidth} 
               view={view} 
             />
-            {currentRoutePoints.length > 1 && (
+            {showRouteLine && currentRoutePoints.length > 1 && (
               <Polyline 
                 positions={currentRoutePoints.map(p => [p.lat, p.lng])} 
                 color="#4f46e5" 
