@@ -1,6 +1,6 @@
 # TODO Tracker (V1.2)
 
-A modern, interactive relocation and travel tracker built with React, TypeScript, and Google Sheets. Designed for tracking bucket-list locations, hotels, and key landmarks across both local (Austin) and national (USA) scopes.
+A modern, interactive relocation and travel tracker built with React, TypeScript, and Google Sheets. Designed for tracking bucket-list locations, hotels, and key landmarks across Austin, Texas, the wider USA, and the UK & Ireland.
 
 ![TODO Tracker](https://img.shields.io/badge/Version-1.2-indigo)
 ![Tech Stack](https://img.shields.io/badge/Stack-React%20%7C%20TS%20%7C%20Vercel%20%7C%20Sheets-blue)
@@ -8,7 +8,7 @@ A modern, interactive relocation and travel tracker built with React, TypeScript
 ## 🚀 Features
 
 - **📍 Interactive Map & List**: A split-screen responsive layout using Leaflet and Tailwind CSS.
-- **🗺️ Dual Scope**: Toggle between "Austin" and "USA" views with automatic map zooming and filtering.
+- **🗺️ Multiple Scopes**: Toggle between Austin, Texas, USA, and UK & Ireland views with automatic map zooming and filtering.
 - **🏨 Hotel Tracking**: A dedicated section for tracking accommodations separate from destinations.
 - **🔍 Smart Search**: Add new locations instantly using Nominatim (OpenStreetMap) search.
 - **✅ Visited History**:
@@ -44,12 +44,15 @@ Preview, and Development environments in Vercel. Because Vite embeds `VITE_`
 variables in the browser bundle, this key is public client configuration rather
 than a server-side secret. Without it, the app falls back to OpenStreetMap tiles.
 
+Vercel Preview deployments require these variables to be enabled for the Preview
+environment. Redeploy after changing environment-variable assignments.
+
 ## 📊 Google Sheets Setup
 
 Your spreadsheet requires three tabs (sheets) with specific headers:
 
 ### Sheet 1: "Places" (Index 0)
-`id`, `category`, `name`, `address`, `lat`, `lng`, `status`, `notes`, `rating`, `priority`, `scope`, `return`
+`id`, `category`, `name`, `address`, `lat`, `lng`, `status`, `notes`, `rating`, `priority`, `scope`, `return`, `details`, `date`, `eventStartDate`, `eventEndDate`
 
 ### Sheet 2: "Markers" (Index 1)
 `id`, `type`, `name`, `address`, `lat`, `lng`, `notes`, `scope`

@@ -64,6 +64,8 @@ interface Place {
   type?: 'place' | 'hotel';
   details?: string;
   date?: string;
+  eventStartDate?: string;
+  eventEndDate?: string;
   photos?: string;
 }
 
@@ -91,6 +93,12 @@ const SCOPE_CONFIG = {
     center: [30.2672, -97.7431] as [number, number],
     zoom: 12,
     searchParams: '&viewbox=-98.3,30.7,-97.2,29.8&bounded=1'
+  },
+  Texas: {
+    label: 'Texas',
+    center: [31.0, -99.9018] as [number, number],
+    zoom: 6,
+    searchParams: '&viewbox=-106.65,36.5,-93.51,25.84&bounded=1'
   },
   USA: {
     label: 'USA',
@@ -199,6 +207,58 @@ const ConfirmationDialog = ({ message, onConfirm, onCancel }: { message: string,
   );
 };
 
+const formatEventDateRange = (startDate?: string, endDate?: string) => {
+  if (!startDate) return '';
+  const start = format(parseISO(startDate), 'd MMM yyyy');
+  if (!endDate || endDate === startDate) return start;
+  return `${start} – ${format(parseISO(endDate), 'd MMM yyyy')}`;
+};
+
+const EventDateDialog = ({ placeName, isAdding, onConfirm, onCancel }: {
+  placeName: string;
+  isAdding: boolean;
+  onConfirm: (startDate: string, endDate: string) => void;
+  onCancel: () => void;
+}) => {
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const invalidRange = Boolean(startDate && endDate && endDate < startDate);
+
+  return (
+    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (startDate && !invalidRange) onConfirm(startDate, endDate);
+        }}
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-200"
+      >
+        <div className="p-5 border-b border-slate-100">
+          <h3 className="font-bold text-lg text-slate-900">Event dates</h3>
+          <p className="text-xs text-slate-500 mt-1 truncate">{placeName}</p>
+        </div>
+        <div className="p-5 space-y-4">
+          <label className="block space-y-1">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Start date</span>
+            <input required type="date" value={startDate} onChange={(event) => { setStartDate(event.target.value); if (endDate && event.target.value > endDate) setEndDate(''); }} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
+          </label>
+          <label className="block space-y-1">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">End date <span className="normal-case font-medium">(optional)</span></span>
+            <input type="date" min={startDate || undefined} value={endDate} onChange={(event) => setEndDate(event.target.value)} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
+          </label>
+          <p className="text-[10px] text-slate-400">Leave the end date blank for a single-day event.</p>
+        </div>
+        <div className="p-5 border-t bg-slate-50 flex justify-end gap-2">
+          <button type="button" disabled={isAdding} onClick={onCancel} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 hover:bg-white font-bold text-xs disabled:opacity-50">Back</button>
+          <button type="submit" disabled={!startDate || invalidRange || isAdding} className="px-4 py-2 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 font-bold text-xs flex items-center gap-2 disabled:opacity-50">
+            {isAdding && <Loader2 size={14} className="animate-spin" />} Add Event
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+};
+
 const EditLocationModal = ({ item, onSave, onDelete, onClose }: { item: Place, onSave: (id: string, data: any, type: 'place' | 'hotel') => void, onDelete: (item: Place) => void, onClose: () => void }) => {
   const [name, setName] = useState(item.name);
   const [category, setCategory] = useState(item.category || 'Other');
@@ -206,7 +266,10 @@ const EditLocationModal = ({ item, onSave, onDelete, onClose }: { item: Place, o
   const [lat, setLat] = useState(String(item.lat));
   const [lng, setLng] = useState(String(item.lng));
   const [details, setDetails] = useState(item.details || '');
+  const [eventStartDate, setEventStartDate] = useState(item.eventStartDate || '');
+  const [eventEndDate, setEventEndDate] = useState(item.eventEndDate || '');
   const isHotel = item.type === 'hotel';
+  const invalidEventDates = category === 'Events' && (!eventStartDate || Boolean(eventEndDate && eventEndDate < eventStartDate));
 
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
@@ -218,7 +281,9 @@ const EditLocationModal = ({ item, onSave, onDelete, onClose }: { item: Place, o
       address,
       lat: Number.isFinite(nextLat) ? nextLat : item.lat,
       lng: Number.isFinite(nextLng) ? nextLng : item.lng,
-      details
+      details,
+      eventStartDate: category === 'Events' ? eventStartDate : '',
+      eventEndDate: category === 'Events' ? eventEndDate : ''
     }, item.type || 'place');
     onClose();
   };
@@ -242,7 +307,7 @@ const EditLocationModal = ({ item, onSave, onDelete, onClose }: { item: Place, o
             <label className="block space-y-1">
               <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Category</span>
               <select value={category} onChange={(e) => setCategory(e.target.value)} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm">
-                {['Food', 'Drinks', 'Activities', 'Sport', 'Other'].map(option => <option key={option} value={option}>{option}</option>)}
+                {['Food', 'Drinks', 'Activities', 'Sport', 'Events', 'Other'].map(option => <option key={option} value={option}>{option}</option>)}
               </select>
             </label>
           )}
@@ -266,12 +331,24 @@ const EditLocationModal = ({ item, onSave, onDelete, onClose }: { item: Place, o
               <input value={details} onChange={(e) => setDetails(e.target.value)} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
             </label>
           )}
+          {!isHotel && category === 'Events' && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <label className="block space-y-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Event start</span>
+                <input required type="date" value={eventStartDate} onChange={(event) => { setEventStartDate(event.target.value); if (eventEndDate && event.target.value > eventEndDate) setEventEndDate(''); }} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
+              </label>
+              <label className="block space-y-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Event end <span className="normal-case font-medium">(optional)</span></span>
+                <input type="date" min={eventStartDate || undefined} value={eventEndDate} onChange={(event) => setEventEndDate(event.target.value)} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
+              </label>
+            </div>
+          )}
         </div>
         <div className="p-5 border-t bg-slate-50 flex items-center justify-between gap-3">
           <button type="button" onClick={() => onDelete(item)} className="px-4 py-2 rounded-xl text-red-600 hover:bg-red-50 font-bold text-xs flex items-center gap-2"><Trash2 size={16} /> Delete</button>
           <div className="flex gap-2">
             <button type="button" onClick={onClose} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 hover:bg-white font-bold text-xs">Cancel</button>
-            <button type="submit" className="px-4 py-2 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 font-bold text-xs flex items-center gap-2"><Save size={16} /> Save Changes</button>
+            <button type="submit" disabled={invalidEventDates} className="px-4 py-2 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 font-bold text-xs flex items-center gap-2 disabled:opacity-50"><Save size={16} /> Save Changes</button>
           </div>
         </div>
       </form>
@@ -648,6 +725,7 @@ const App = () => {
   const [pendingPlace, setPendingPlace] = useState<any>(null);
   const [pendingName, setPendingName] = useState('');
   const [pendingDetails, setPendingDetails] = useState('');
+  const [showEventDateDialog, setShowEventDateDialog] = useState(false);
 
   useEffect(() => {
     const handleResize = () => { setWindowWidth(window.innerWidth); if (window.innerWidth >= 640 && view === 'map') setView('split'); };
@@ -744,14 +822,14 @@ const App = () => {
     });
   };
 
-  const addPlace = async (category: string) => {
+  const addPlace = async (category: string, eventStartDate = '', eventEndDate = '') => {
     if (!isOwner || !pendingPlace) return; setIsAdding(true);
     const isHotel = category === 'Hotels';
-    const newEntry: any = { name: pendingName || pendingPlace.display_name.split(',')[0], address: pendingPlace.display_name.split(',').slice(1).join(',').trim(), lat: parseFloat(pendingPlace.lat), lng: parseFloat(pendingPlace.lon), category: isHotel ? 'Hotels' : category, status: 'To Do', notes: '', rating: '', priority: '', scope: activeScope, type: isHotel ? 'hotel' : 'place', details: pendingDetails };
+    const newEntry: any = { name: pendingName || pendingPlace.display_name.split(',')[0], address: pendingPlace.display_name.split(',').slice(1).join(',').trim(), lat: parseFloat(pendingPlace.lat), lng: parseFloat(pendingPlace.lon), category: isHotel ? 'Hotels' : category, status: 'To Do', notes: '', rating: '', priority: '', scope: activeScope, type: isHotel ? 'hotel' : 'place', details: pendingDetails, eventStartDate, eventEndDate };
     try {
       const res = await fetch('/api/places', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': appPassword || '' }, body: JSON.stringify(newEntry) });
       const data = await res.json();
-      if (data.success) { if (isHotel) setHotels(prev => [...prev, { ...newEntry, id: data.id }]); else setPlaces(prev => [...prev, { ...newEntry, id: data.id }]); setPendingPlace(null); setPendingName(''); setPendingDetails(''); setSearchQuery(''); setSearchResults([]); setFilter(isHotel ? 'Hotels' : 'All'); }
+      if (data.success) { if (isHotel) setHotels(prev => [...prev, { ...newEntry, id: data.id }]); else setPlaces(prev => [...prev, { ...newEntry, id: data.id }]); setPendingPlace(null); setPendingName(''); setPendingDetails(''); setShowEventDateDialog(false); setSearchQuery(''); setSearchResults([]); setFilter(isHotel ? 'Hotels' : category === 'Events' ? 'Events' : 'All'); }
     } catch (err) { setError("Failed to add entry."); } finally { setIsAdding(false); }
   };
 
@@ -944,7 +1022,7 @@ const App = () => {
     });
   };
 
-  const categories = ['TODO', 'Journeys', 'Food', 'Drinks', 'Activities', 'Sport', 'Hotels', 'Saved', 'Visited', 'All'];
+  const categories = ['TODO', 'Journeys', 'Events', 'Food', 'Drinks', 'Activities', 'Sport', 'Hotels', 'Saved', 'Visited', 'All'];
   const effectiveSidebarWidth = useMemo(() => { if (windowWidth < 640) return view === 'map' ? 0 : 100; if (view === 'map') return 0; if (filter === 'Visited') return 66.66; return sidebarWidth; }, [windowWidth, view, filter, sidebarWidth]);
 
   const filteredMarkers = useMemo(() => markers.filter(m => m.scope === activeScope), [markers, activeScope]);
@@ -1178,10 +1256,18 @@ const App = () => {
       )}
       {activePhotoItem && (<PhotoModal item={activePhotoItem} isOpen={!!activePhotoItem} onClose={() => setActivePhotoItem(null)} onUpload={(url) => handlePhotoUpload(activePhotoItem, url)} appPassword={appPassword} onExpand={(urls, index) => setLightboxState({ urls, index })} onError={setToastMessage} />)}
       {isOwner && editingItem && (<EditLocationModal item={editingItem} onSave={updatePlace} onDelete={deletePlace} onClose={() => setEditingItem(null)} />)}
+      {isOwner && pendingPlace && showEventDateDialog && (
+        <EventDateDialog
+          placeName={pendingName || pendingPlace.display_name.split(',')[0]}
+          isAdding={isAdding}
+          onConfirm={(startDate, endDate) => addPlace('Events', startDate, endDate)}
+          onCancel={() => setShowEventDateDialog(false)}
+        />
+      )}
       {lightboxState && (<Lightbox urls={lightboxState.urls} initialIndex={lightboxState.index} onClose={() => setLightboxState(null)} />)}
       <header className="p-3 sm:p-4 bg-white border-b flex flex-col gap-3 shrink-0 z-10">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3 sm:gap-4"><h1 className="text-lg sm:text-xl font-bold text-indigo-600">TODO Tracker</h1><div className="flex bg-slate-100 p-1 rounded-lg">{SCOPE_NAMES.map(scope => (<button key={scope} onClick={() => { setActiveScope(scope); setFilter('All'); setActiveRouteId(null); setMapTarget(null); }} className={`px-3 py-1 rounded-md text-xs sm:text-sm font-bold transition-all ${activeScope === scope ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}>{SCOPE_CONFIG[scope].label}</button>))}</div></div>
+          <h1 className="text-lg sm:text-xl font-bold text-indigo-600">TODO Tracker</h1>
           <div className="flex items-center gap-2">
             <button
               type="button"
@@ -1204,6 +1290,17 @@ const App = () => {
             )}
           </div>
         </div>
+        <div className="flex overflow-x-auto no-scrollbar bg-slate-100 p-1 rounded-lg self-start max-w-full">
+          {SCOPE_NAMES.map(scope => (
+            <button
+              key={scope}
+              onClick={() => { setActiveScope(scope); setFilter('All'); setActiveRouteId(null); setMapTarget(null); }}
+              className={`px-3 py-1 rounded-md text-xs sm:text-sm font-bold whitespace-nowrap transition-all ${activeScope === scope ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}
+            >
+              {SCOPE_CONFIG[scope].label}
+            </button>
+          ))}
+        </div>
         <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
           <Filter size={16} className="text-slate-400 shrink-0" />{categories.map(cat => (<button key={cat} onClick={() => setFilter(cat)} className={`px-3 py-1.5 rounded-full text-xs sm:text-sm font-medium whitespace-nowrap transition-all ${filter === cat ? 'bg-indigo-600 text-white ring-2 ring-indigo-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>{cat}</button>))}
         </div>
@@ -1224,8 +1321,8 @@ const App = () => {
                   <h3 className="text-lg font-bold mb-4">Add Place</h3>
                   <input type="text" value={pendingName} onChange={(e) => setPendingName(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border rounded-xl mb-3 outline-none focus:ring-2 focus:ring-indigo-500 text-sm font-semibold" placeholder="Name" />
                   <textarea value={pendingDetails} onChange={(e) => setPendingDetails(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border rounded-xl mb-4 outline-none focus:ring-2 focus:ring-indigo-500 text-sm h-20 resize-none" placeholder="Details" />
-                  <div className="grid grid-cols-2 gap-2">{['Food', 'Drinks', 'Activities', 'Sport', 'Hotels', 'Other'].map(cat => (<button key={cat} disabled={isAdding} onClick={() => addPlace(cat)} className="py-2 bg-slate-50 hover:bg-indigo-600 hover:text-white rounded-xl text-sm font-medium transition-all border border-slate-100 flex items-center justify-center gap-2">{isAdding && <Loader2 size={14} className="animate-spin" />}{cat}</button>))}</div>
-                  <button onClick={() => setPendingPlace(null)} className="mt-4 text-slate-400 text-sm font-medium">Cancel</button>
+                  <div className="grid grid-cols-2 gap-2">{['Food', 'Drinks', 'Activities', 'Sport', 'Events', 'Hotels', 'Other'].map(cat => (<button key={cat} disabled={isAdding} onClick={() => cat === 'Events' ? setShowEventDateDialog(true) : addPlace(cat)} className="py-2 bg-slate-50 hover:bg-indigo-600 hover:text-white rounded-xl text-sm font-medium transition-all border border-slate-100 flex items-center justify-center gap-2">{isAdding && <Loader2 size={14} className="animate-spin" />}{cat}</button>))}</div>
+                  <button onClick={() => { setPendingPlace(null); setShowEventDateDialog(false); }} className="mt-4 text-slate-400 text-sm font-medium">Cancel</button>
                 </div>
               </div>
             )}
@@ -1450,9 +1547,9 @@ const App = () => {
             <section className="space-y-6">
               <div className="space-y-4">
                 <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest px-1">
-                  {filter === 'Hotels' ? 'Hotels' : filter === 'Visited' ? 'Visited' : filter === 'All' ? 'All Locations' : 'To Do'}
+                  {filter === 'Hotels' ? 'Hotels' : filter === 'Visited' ? 'Visited' : filter === 'All' ? 'All Locations' : filter === 'TODO' ? 'To Do' : filter}
                 </h2>
-                {filter === 'Visited' && (<div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1.5 px-1">{['All', 'Food', 'Drinks', 'Activities', 'Sport', 'Hotels', 'Other'].map(cat => (<button key={cat} onClick={() => setVisitedFilter(cat)} className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase transition-all whitespace-nowrap ${visitedFilter === cat ? 'bg-indigo-100 text-indigo-600 ring-2 ring-indigo-200' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}>{cat}</button>))}</div>)}
+                {filter === 'Visited' && (<div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1.5 px-1">{['All', 'Events', 'Food', 'Drinks', 'Activities', 'Sport', 'Hotels', 'Other'].map(cat => (<button key={cat} onClick={() => setVisitedFilter(cat)} className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase transition-all whitespace-nowrap ${visitedFilter === cat ? 'bg-indigo-100 text-indigo-600 ring-2 ring-indigo-200' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}>{cat}</button>))}</div>)}
               </div>
               <div className="space-y-4 sm:space-y-2">
                 {filter === 'Visited' ? (
@@ -1482,7 +1579,8 @@ const App = () => {
                                   )}
                                   <h3 className={`font-semibold text-base md:text-sm truncate transition-colors ${hoveredId === `${item.type}:${item.id}` ? 'text-indigo-600' : ''}`}>{item.name}</h3>
                                 </div>
-                                {item.details && <p className="text-xs md:text-[10px] text-indigo-500 font-medium italic mt-0.5">{item.details}</p>}
+                                {item.details && <p className="text-base md:text-sm text-indigo-500 font-medium italic mt-0.5">{item.details}</p>}
+                                {item.category === 'Events' && item.eventStartDate && <p className="text-xs md:text-[10px] text-rose-600 font-bold mt-1 flex items-center gap-1"><Calendar size={12} /> {formatEventDateRange(item.eventStartDate, item.eventEndDate)}</p>}
                                 <p className="text-sm md:text-[11px] text-slate-500 truncate mt-1">{item.address}</p>
                               </div>
                               {isOwner && !isJourneyMode && (
@@ -1558,7 +1656,8 @@ const App = () => {
                             )}
                           </div>
                           <h3 className={`font-semibold text-base md:text-sm truncate transition-colors ${hoveredId === `${item.type}:${item.id}` ? 'text-indigo-600' : ''}`}>{item.name}</h3>
-                          {item.details && <p className="text-[10px] text-indigo-500 font-medium italic flex items-center gap-1"><Info size={12}/> {item.details}</p>}
+                          {item.details && <p className="text-base md:text-sm text-indigo-500 font-medium italic flex items-center gap-1"><Info size={16}/> {item.details}</p>}
+                          {item.category === 'Events' && item.eventStartDate && <p className="text-[10px] text-rose-600 font-bold flex items-center gap-1 mt-1"><Calendar size={12} /> {formatEventDateRange(item.eventStartDate, item.eventEndDate)}</p>}
                           <p className="text-sm md:text-[11px] text-slate-500 truncate mt-1">{item.address}</p>
                           <div className="flex items-center gap-2 mt-2">
                             <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">Priority</span>
@@ -1630,7 +1729,8 @@ const App = () => {
                 {(hoveredItem as any).status === 'Visited' && <CheckCircle2 size={16} className="text-green-500 shrink-0" />}
               </div>
               <p className="text-[10px] text-slate-500 mb-3 truncate">{(hoveredItem as any).address}</p>
-              {(hoveredItem as any).details && <p className="text-[10px] text-indigo-600 font-medium italic mb-3 bg-indigo-50/50 p-2 rounded-lg leading-relaxed">{(hoveredItem as any).details}</p>}
+              {(hoveredItem as any).details && <p className="text-sm text-indigo-600 font-medium italic mb-3 bg-indigo-50/50 p-2 rounded-lg leading-relaxed">{(hoveredItem as any).details}</p>}
+              {(hoveredItem as any).category === 'Events' && (hoveredItem as any).eventStartDate && <p className="text-[10px] text-rose-600 font-bold mb-3 flex items-center gap-1"><Calendar size={12} /> {formatEventDateRange((hoveredItem as any).eventStartDate, (hoveredItem as any).eventEndDate)}</p>}
               {(hoveredItem as any).photos && <div className="rounded-xl overflow-hidden mb-3 ring-1 ring-slate-100"><img src={(hoveredItem as any).photos.split(',')[0]} className="w-full h-32 object-cover" alt="" /></div>}
               {(hoveredItem as any).rating && (
                 <div className="flex gap-0.5 text-yellow-500">
