@@ -9,7 +9,7 @@ import {
   MapPin, Search, Star, X, Plus, Save, Loader2, Bed, RotateCcw, 
   Lock, LogIn, LogOut, Eye, Info, Trophy, Camera, Upload, Image as ImageIcon,
   Maximize2, ChevronLeft, ChevronRight, Calendar, Route as RouteIcon,
-  Navigation, Trash2, CheckSquare, Pencil, Moon, Sun
+  Navigation, Trash2, CheckSquare, Pencil, Moon, Sun, BookOpen, LocateFixed
 } from 'lucide-react';
 import { 
   format, addMonths, subMonths, startOfMonth, endOfMonth, 
@@ -88,6 +88,21 @@ interface Route {
   tripType: 'ordered' | 'unordered';
   completedPlaceIds: string[];
   status: 'planned' | 'active' | 'completed';
+}
+
+interface DiaryEntry {
+  id: string;
+  date: string;
+  title: string;
+  notes: string;
+  placeId: string;
+  placeType: string;
+  name: string;
+  address: string;
+  lat: number;
+  lng: number;
+  scope: string;
+  createdAt: string;
 }
 
 const SCOPE_CONFIG = {
@@ -670,6 +685,7 @@ const App = () => {
   const [markers, setMarkers] = useState<MarkerData[]>([]);
   const [hotels, setHotels] = useState<Place[]>([]);
   const [routes, setRoutes] = useState<Route[]>([]);
+  const [diaryEntries, setDiaryEntries] = useState<DiaryEntry[]>([]);
   const [isJourneyMode, setIsJourneyMode] = useState(false);
   const [selectedJourneyPlaces, setSelectedJourneyPlaces] = useState<string[]>([]);
   const [journeyName, setJourneyName] = useState('');
@@ -730,6 +746,17 @@ const App = () => {
   const [pendingName, setPendingName] = useState('');
   const [pendingDetails, setPendingDetails] = useState('');
   const [showEventDateDialog, setShowEventDateDialog] = useState(false);
+  const [showDiaryDialog, setShowDiaryDialog] = useState(false);
+  const [diaryDate, setDiaryDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [diaryTitle, setDiaryTitle] = useState('');
+  const [diaryNotes, setDiaryNotes] = useState('');
+  const [diaryPlace, setDiaryPlace] = useState<any>(null);
+  const [diarySource, setDiarySource] = useState<'existing' | 'search' | 'current' | 'none'>('existing');
+  const [diarySearch, setDiarySearch] = useState('');
+  const [diarySearchResults, setDiarySearchResults] = useState<any[]>([]);
+  const [isDiarySearching, setIsDiarySearching] = useState(false);
+  const [isLocating, setIsLocating] = useState(false);
+  const [diaryMarkVisited, setDiaryMarkVisited] = useState(true);
 
   useEffect(() => {
     const handleResize = () => { setWindowWidth(window.innerWidth); if (window.innerWidth >= 640 && view === 'map') setView('split'); };
@@ -754,6 +781,7 @@ const App = () => {
         setMarkers(data.markers || []); 
         setHotels(data.hotels || []); 
         setRoutes(data.routes || []);
+        setDiaryEntries(data.diaryEntries || []);
         setIsAuthError(false); 
         if (appPassword) { setShowSignIn(false); setPwInput(''); }
       })
@@ -836,6 +864,130 @@ const App = () => {
       const data = await res.json();
       if (data.success) { if (isHotel) setHotels(prev => [...prev, { ...newEntry, id: data.id }]); else setPlaces(prev => [...prev, { ...newEntry, id: data.id }]); setPendingPlace(null); setPendingName(''); setPendingDetails(''); setShowEventDateDialog(false); setSearchQuery(''); setSearchResults([]); setFilter(isHotel ? 'Hotels' : category === 'Events' ? 'Events' : 'All'); }
     } catch (err) { setError("Failed to add entry."); } finally { setIsAdding(false); }
+  };
+
+  const resetDiaryDialog = () => {
+    setShowDiaryDialog(false);
+    setDiaryDate(format(new Date(), 'yyyy-MM-dd'));
+    setDiaryTitle('');
+    setDiaryNotes('');
+    setDiaryPlace(null);
+    setDiarySource('existing');
+    setDiarySearch('');
+    setDiarySearchResults([]);
+    setDiaryMarkVisited(true);
+  };
+
+  const chooseDiaryPlace = (item: any) => {
+    setDiaryPlace(item);
+    setDiaryTitle(item.name || item.display_name?.split(',')[0] || '');
+    setDiaryMarkVisited(item.status === 'To Do');
+  };
+
+  const searchDiaryPlaces = async () => {
+    if (!diarySearch.trim()) return;
+    setIsDiarySearching(true);
+    try {
+      const scopeConfig = SCOPE_CONFIG[activeScope];
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(diarySearch)}${scopeConfig.searchParams}`);
+      setDiarySearchResults(await response.json());
+    } catch (error) {
+      setToastMessage('Could not search for that location.');
+    } finally {
+      setIsDiarySearching(false);
+    }
+  };
+
+  const useCurrentDiaryLocation = () => {
+    if (!navigator.geolocation) {
+      setToastMessage('Geolocation is not supported by this browser.');
+      return;
+    }
+    setIsLocating(true);
+    navigator.geolocation.getCurrentPosition(async position => {
+      const { latitude, longitude } = position.coords;
+      try {
+        const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`);
+        const result = await response.json();
+        chooseDiaryPlace({
+          id: '',
+          type: '',
+          name: result.name || result.display_name?.split(',')[0] || 'Current location',
+          address: result.display_name || `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`,
+          lat: latitude,
+          lng: longitude,
+          status: ''
+        });
+      } catch (error) {
+        chooseDiaryPlace({ id: '', type: '', name: 'Current location', address: `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`, lat: latitude, lng: longitude, status: '' });
+      } finally {
+        setIsLocating(false);
+      }
+    }, () => {
+      setIsLocating(false);
+      setToastMessage('Location permission was denied or unavailable.');
+    }, { enableHighAccuracy: true, timeout: 10000 });
+  };
+
+  const saveDiaryEntry = async () => {
+    if (!isOwner || !diaryTitle.trim()) {
+      setToastMessage('Add a title for this diary entry.');
+      return;
+    }
+    setIsAdding(true);
+    const entry = {
+      date: diaryDate,
+      title: diaryTitle.trim(),
+      notes: diaryNotes.trim(),
+      placeId: diaryPlace?.id || '',
+      placeType: diaryPlace?.type || '',
+      name: diaryPlace?.name || diaryTitle.trim(),
+      address: diaryPlace?.address || '',
+      lat: Number(diaryPlace?.lat) || 0,
+      lng: Number(diaryPlace?.lng) || 0,
+      scope: activeScope,
+      createdAt: new Date().toISOString()
+    };
+    try {
+      const response = await fetch('/api/places', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': appPassword || '' },
+        body: JSON.stringify({ type: 'diary', ...entry })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to save diary entry');
+      setDiaryEntries(current => [{ ...entry, id: data.id }, ...current]);
+      if (diaryMarkVisited && diaryPlace?.id && (diaryPlace.type === 'place' || diaryPlace.type === 'hotel')) {
+        await updatePlace(diaryPlace.id, { status: 'Visited', date: diaryDate }, diaryPlace.type);
+      }
+      resetDiaryDialog();
+      setToastMessage('Diary entry saved.');
+    } catch (error: any) {
+      setError(error.message || 'Failed to save diary entry.');
+    } finally {
+      setIsAdding(false);
+    }
+  };
+
+  const deleteDiaryEntry = (entry: DiaryEntry) => {
+    if (!isOwner) return;
+    setConfirmationDialog({
+      message: `Delete diary entry "${entry.title}"?`,
+      onConfirm: async () => {
+        const response = await fetch('/api/places', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': appPassword || '' },
+          body: JSON.stringify({ type: 'diary', id: entry.id, action: 'delete' })
+        });
+        if (response.ok) {
+          setDiaryEntries(current => current.filter(item => item.id !== entry.id));
+          setToastMessage('Diary entry deleted.');
+        } else {
+          setError('Failed to delete diary entry.');
+        }
+      },
+      onCancel: () => {}
+    });
   };
 
   const handlePhotoUpload = async (item: Place, url: string) => {
@@ -1066,7 +1218,17 @@ const App = () => {
     });
   };
 
-  const categories = ['TODO', 'Trips', 'Events', 'Food', 'Drinks', 'Activities', 'Sport', 'Hotels', 'Saved', 'Visited', 'All'];
+  const categories = ['TODO', 'Trips', 'Diary', 'Events', 'Food', 'Drinks', 'Activities', 'Sport', 'Hotels', 'Saved', 'Visited', 'All'];
+  const diaryGroups = useMemo(() => {
+    const scopedEntries = diaryEntries
+      .filter(entry => entry.scope === activeScope)
+      .sort((a, b) => `${b.date}-${b.createdAt}`.localeCompare(`${a.date}-${a.createdAt}`));
+    return scopedEntries.reduce<Record<string, DiaryEntry[]>>((groups, entry) => {
+      if (!groups[entry.date]) groups[entry.date] = [];
+      groups[entry.date].push(entry);
+      return groups;
+    }, {});
+  }, [diaryEntries, activeScope]);
   const effectiveSidebarWidth = useMemo(() => { if (windowWidth < 640) return view === 'map' ? 0 : 100; if (view === 'map') return 0; if (filter === 'Visited') return 66.66; return sidebarWidth; }, [windowWidth, view, filter, sidebarWidth]);
 
   const filteredMarkers = useMemo(() => markers.filter(m => m.scope === activeScope), [markers, activeScope]);
@@ -1312,6 +1474,104 @@ const App = () => {
           onCancel={() => setShowEventDateDialog(false)}
         />
       )}
+      {isOwner && showDiaryDialog && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[120] flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg max-h-[92vh] overflow-y-auto shadow-2xl p-5 sm:p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2"><BookOpen size={20} className="text-indigo-600" /> Add Diary Entry</h3>
+                <p className="text-xs text-slate-500 mt-1">Record today or catch up on an earlier day.</p>
+              </div>
+              <button onClick={resetDiaryDialog} className="p-2 text-slate-400 hover:text-slate-700"><X size={20} /></button>
+            </div>
+
+            <label className="block">
+              <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Date</span>
+              <input type="date" value={diaryDate} max={format(new Date(), 'yyyy-MM-dd')} onChange={event => setDiaryDate(event.target.value)} className="mt-1 w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500" />
+            </label>
+
+            <div>
+              <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Location</span>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 mt-1 p-1 bg-slate-100 rounded-xl">
+                {([
+                  { id: 'existing', label: 'Tracker' },
+                  { id: 'search', label: 'Search' },
+                  { id: 'current', label: 'Current' },
+                  { id: 'none', label: 'No location' }
+                ] as const).map(option => (
+                  <button key={option.id} onClick={() => { setDiarySource(option.id); setDiaryPlace(null); setDiarySearch(''); setDiarySearchResults([]); }} className={`px-2 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all ${diarySource === option.id ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}>{option.label}</button>
+                ))}
+              </div>
+            </div>
+
+            {diarySource === 'existing' && (
+              <div className="space-y-2">
+                <input value={diarySearch} onChange={event => setDiarySearch(event.target.value)} placeholder="Filter your saved places..." className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500" />
+                <div className="max-h-44 overflow-y-auto space-y-1.5 pr-1">
+                  {[...places.map(place => ({ ...place, type: 'place' })), ...hotels.map(hotel => ({ ...hotel, type: 'hotel', category: 'Hotels' }))]
+                    .filter(item => item.scope === activeScope && (!diarySearch.trim() || `${item.name} ${item.address}`.toLowerCase().includes(diarySearch.toLowerCase())))
+                    .map(item => (
+                      <button key={`${item.type}:${item.id}`} onClick={() => chooseDiaryPlace(item)} className={`w-full p-2.5 rounded-xl border text-left flex items-center justify-between gap-2 ${diaryPlace?.id === item.id && diaryPlace?.type === item.type ? 'bg-indigo-50 border-indigo-300' : 'bg-white border-slate-100 hover:border-indigo-200'}`}>
+                        <span className="min-w-0"><span className="block text-xs font-bold text-slate-800 truncate">{item.name}</span><span className="block text-[10px] text-slate-400 truncate">{item.address}</span></span>
+                        <span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded-full shrink-0 ${item.status === 'Visited' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>{item.status}</span>
+                      </button>
+                    ))}
+                </div>
+              </div>
+            )}
+
+            {diarySource === 'search' && (
+              <div className="space-y-2">
+                <div className="flex gap-2">
+                  <input value={diarySearch} onChange={event => setDiarySearch(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); searchDiaryPlaces(); } }} placeholder="Search for any place..." className="flex-1 min-w-0 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500" />
+                  <button onClick={searchDiaryPlaces} disabled={isDiarySearching} className="px-3 rounded-xl bg-indigo-600 text-white disabled:opacity-50">{isDiarySearching ? <Loader2 size={18} className="animate-spin" /> : <Search size={18} />}</button>
+                </div>
+                <div className="max-h-40 overflow-y-auto space-y-1.5">
+                  {diarySearchResults.map((result, index) => (
+                    <button key={index} onClick={() => chooseDiaryPlace({ id: '', type: '', name: result.display_name.split(',')[0], address: result.display_name, lat: Number(result.lat), lng: Number(result.lon), status: '' })} className="w-full p-2.5 rounded-xl border border-slate-100 hover:border-indigo-200 text-left">
+                      <span className="block text-xs font-bold text-slate-800 truncate">{result.display_name.split(',')[0]}</span>
+                      <span className="block text-[10px] text-slate-400 truncate">{result.display_name}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {diarySource === 'current' && (
+              <button onClick={useCurrentDiaryLocation} disabled={isLocating} className="w-full py-3 rounded-xl border-2 border-dashed border-indigo-200 bg-indigo-50 text-indigo-600 font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-50">
+                {isLocating ? <Loader2 size={18} className="animate-spin" /> : <LocateFixed size={18} />} {isLocating ? 'Finding location...' : 'Use my current location'}
+              </button>
+            )}
+
+            {diaryPlace && (
+              <div className="p-3 bg-indigo-50 border border-indigo-100 rounded-xl">
+                <p className="text-xs font-bold text-indigo-800">{diaryPlace.name}</p>
+                <p className="text-[10px] text-indigo-500 truncate mt-0.5">{diaryPlace.address}</p>
+              </div>
+            )}
+
+            <label className="block">
+              <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">What did you do?</span>
+              <input value={diaryTitle} onChange={event => setDiaryTitle(event.target.value)} placeholder="e.g. Museum of the Weird" className="mt-1 w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-indigo-500" />
+            </label>
+            <label className="block">
+              <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Memory or notes</span>
+              <textarea value={diaryNotes} onChange={event => setDiaryNotes(event.target.value)} placeholder="Anything worth remembering..." className="mt-1 w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm h-24 resize-none outline-none focus:ring-2 focus:ring-indigo-500" />
+            </label>
+
+            {diaryPlace?.status === 'To Do' && (
+              <label className="flex items-center gap-2 p-3 rounded-xl bg-green-50 text-green-800 text-xs font-semibold cursor-pointer">
+                <input type="checkbox" checked={diaryMarkVisited} onChange={event => setDiaryMarkVisited(event.target.checked)} className="accent-green-600" />
+                Also mark this tracker location as Visited
+              </label>
+            )}
+
+            <button onClick={saveDiaryEntry} disabled={isAdding || !diaryTitle.trim()} className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-2">
+              {isAdding ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />} Save Diary Entry
+            </button>
+          </div>
+        </div>
+      )}
       {lightboxState && (<Lightbox urls={lightboxState.urls} initialIndex={lightboxState.index} onClose={() => setLightboxState(null)} />)}
       <header className="p-3 sm:p-4 bg-white border-b flex flex-col gap-3 shrink-0 z-10">
         <div className="flex items-center justify-between">
@@ -1356,7 +1616,7 @@ const App = () => {
       <main className="flex-1 flex overflow-hidden relative pb-[60px] sm:pb-0">
         {error && <div className="absolute top-0 left-0 right-0 bg-red-500 text-white p-2 text-center text-xs z-50">{error}</div>}
         <div style={{ width: `${effectiveSidebarWidth}%` }} className={`overflow-y-auto p-3 sm:p-4 space-y-6 shrink-0 ${view === 'map' ? 'hidden sm:block sm:!w-0' : 'block'}`}>
-          {isOwner && <section className="space-y-3">
+          {isOwner && filter !== 'Diary' && <section className="space-y-3">
             <h2 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Add New Place</h2>
             <form onSubmit={async (e) => { e.preventDefault(); if (!searchQuery) return; setIsSearching(true); try { const scopeConfig = SCOPE_CONFIG[activeScope]; const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}${scopeConfig.searchParams}`; const res = await fetch(url); setSearchResults(await res.json()); } finally { setIsSearching(false); } }} className="relative">
               <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search..." className="w-full pl-10 pr-10 py-2.5 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm text-sm" />
@@ -1375,7 +1635,39 @@ const App = () => {
               </div>
             )}
           </section>}
-          {filter === 'Trips' ? (
+          {filter === 'Diary' ? (
+            <section className="space-y-5">
+              <div className="flex items-center justify-between px-1">
+                <div>
+                  <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Diary</h2>
+                  <p className="text-[10px] text-slate-400 mt-1">Memories and places from your days.</p>
+                </div>
+                {isOwner && <button onClick={() => setShowDiaryDialog(true)} className="flex items-center gap-1.5 text-[10px] font-black text-indigo-600 bg-indigo-50 px-2.5 py-1.5 rounded-lg hover:bg-indigo-100 uppercase tracking-wider"><Plus size={14} strokeWidth={3} /> Add Entry</button>}
+              </div>
+              {Object.keys(diaryGroups).length === 0 ? (
+                <div className="text-center py-12 text-slate-400 bg-white rounded-2xl border border-slate-100">
+                  <BookOpen size={36} className="mx-auto mb-3 opacity-20" />
+                  <p className="text-sm font-medium">No diary entries for {activeScope} yet.</p>
+                </div>
+              ) : Object.entries(diaryGroups).map(([date, entries]) => (
+                <div key={date} className="space-y-2">
+                  <h3 className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.16em] px-1">{format(parseISO(date), 'EEEE, d MMMM yyyy')}</h3>
+                  {entries.map(entry => (
+                    <div key={entry.id} onClick={() => { if (entry.lat && entry.lng) setMapTarget({ center: [entry.lat, entry.lng], zoom: 16 }); }} className={`bg-white p-4 rounded-2xl border border-slate-100 shadow-sm ${entry.lat && entry.lng ? 'cursor-pointer hover:border-indigo-200' : ''}`}>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <h4 className="font-bold text-sm text-slate-900">{entry.title}</h4>
+                          {entry.address && <p className="text-[10px] text-indigo-500 mt-1 flex items-center gap-1 truncate"><MapPin size={11} className="shrink-0" /> {entry.address}</p>}
+                        </div>
+                        {isOwner && <button onClick={event => { event.stopPropagation(); deleteDiaryEntry(entry); }} className="p-1.5 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-lg" title="Delete diary entry"><Trash2 size={16} /></button>}
+                      </div>
+                      {entry.notes && <p className="text-sm text-slate-600 mt-3 whitespace-pre-wrap leading-relaxed">{entry.notes}</p>}
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </section>
+          ) : filter === 'Trips' ? (
             <section className="space-y-6">
               <div className="flex items-center justify-between px-1">
                 <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Trips</h2>
@@ -1903,10 +2195,21 @@ const App = () => {
                 }}
               />
             ))}
+            {filter === 'Diary' && diaryEntries.filter(entry => entry.scope === activeScope && entry.lat && entry.lng).map(entry => (
+              <Marker key={`diary:${entry.id}`} position={[entry.lat, entry.lng]} icon={defaultPinIcon}>
+                <Popup>
+                  <div className="min-w-[180px]">
+                    <p className="font-bold text-sm">{entry.title}</p>
+                    <p className="text-xs text-slate-500 mt-1">{format(parseISO(entry.date), 'd MMM yyyy')}</p>
+                    {entry.notes && <p className="text-xs mt-2">{entry.notes}</p>}
+                  </div>
+                </Popup>
+              </Marker>
+            ))}
           </MapContainer>
         </div>
       </main>
-      <nav className="sm:hidden fixed bottom-0 left-0 right-0 bg-white border-t flex items-center justify-around h-[60px] z-[100] px-4"><button onClick={() => setView('list')} className={`flex flex-col items-center gap-1 ${view === 'list' ? 'text-indigo-600' : 'text-slate-400'}`}><List size={20} /><span className="text-[10px] font-bold uppercase">List</span></button>{isOwner && <button onClick={() => { setView('list'); setTimeout(() => { document.querySelector<HTMLInputElement>('input[type="text"]')?.focus(); }, 50); }} className="flex flex-col items-center justify-center -mt-8 bg-indigo-600 text-white w-14 h-14 rounded-full shadow-lg ring-4 ring-slate-50"><Plus size={24} /></button>}<button onClick={() => setView('map')} className={`flex flex-col items-center gap-1 ${view === 'map' ? 'text-indigo-600' : 'text-slate-400'}`}><MapIcon size={20} /><span className="text-[10px] font-bold uppercase">Map</span></button></nav>
+      <nav className="sm:hidden fixed bottom-0 left-0 right-0 bg-white border-t flex items-center justify-around h-[60px] z-[100] px-4"><button onClick={() => setView('list')} className={`flex flex-col items-center gap-1 ${view === 'list' ? 'text-indigo-600' : 'text-slate-400'}`}><List size={20} /><span className="text-[10px] font-bold uppercase">List</span></button>{isOwner && <button onClick={() => { setView('list'); if (filter === 'Diary') setShowDiaryDialog(true); else setTimeout(() => { document.querySelector<HTMLInputElement>('input[type="text"]')?.focus(); }, 50); }} className="flex flex-col items-center justify-center -mt-8 bg-indigo-600 text-white w-14 h-14 rounded-full shadow-lg ring-4 ring-slate-50"><Plus size={24} /></button>}<button onClick={() => setView('map')} className={`flex flex-col items-center gap-1 ${view === 'map' ? 'text-indigo-600' : 'text-slate-400'}`}><MapIcon size={20} /><span className="text-[10px] font-bold uppercase">Map</span></button></nav>
       {toastMessage && <Toast message={toastMessage} onClose={() => setToastMessage(null)} />}
       {confirmationDialog && (
         <ConfirmationDialog 
