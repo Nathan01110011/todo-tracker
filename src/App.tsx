@@ -94,6 +94,12 @@ const SCOPE_CONFIG = {
     zoom: 12,
     searchParams: '&viewbox=-98.3,30.7,-97.2,29.8&bounded=1'
   },
+  Texas: {
+    label: 'Texas',
+    center: [31.0, -99.9018] as [number, number],
+    zoom: 6,
+    searchParams: '&viewbox=-106.65,36.5,-93.51,25.84&bounded=1'
+  },
   USA: {
     label: 'USA',
     center: [37.0902, -95.7129] as [number, number],
@@ -1261,7 +1267,7 @@ const App = () => {
       {lightboxState && (<Lightbox urls={lightboxState.urls} initialIndex={lightboxState.index} onClose={() => setLightboxState(null)} />)}
       <header className="p-3 sm:p-4 bg-white border-b flex flex-col gap-3 shrink-0 z-10">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3 sm:gap-4"><h1 className="text-lg sm:text-xl font-bold text-indigo-600">TODO Tracker</h1><div className="flex bg-slate-100 p-1 rounded-lg">{SCOPE_NAMES.map(scope => (<button key={scope} onClick={() => { setActiveScope(scope); setFilter('All'); setActiveRouteId(null); setMapTarget(null); }} className={`px-3 py-1 rounded-md text-xs sm:text-sm font-bold transition-all ${activeScope === scope ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}>{SCOPE_CONFIG[scope].label}</button>))}</div></div>
+          <h1 className="text-lg sm:text-xl font-bold text-indigo-600">TODO Tracker</h1>
           <div className="flex items-center gap-2">
             <button
               type="button"
@@ -1283,6 +1289,17 @@ const App = () => {
               <button onClick={() => { setIsAuthError(false); setShowSignIn(true); }} className="h-8 flex items-center gap-1.5 px-3 rounded-xl text-xs font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100"><LogIn size={14} /> Owner sign in</button>
             )}
           </div>
+        </div>
+        <div className="flex overflow-x-auto no-scrollbar bg-slate-100 p-1 rounded-lg self-start max-w-full">
+          {SCOPE_NAMES.map(scope => (
+            <button
+              key={scope}
+              onClick={() => { setActiveScope(scope); setFilter('All'); setActiveRouteId(null); setMapTarget(null); }}
+              className={`px-3 py-1 rounded-md text-xs sm:text-sm font-bold whitespace-nowrap transition-all ${activeScope === scope ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}
+            >
+              {SCOPE_CONFIG[scope].label}
+            </button>
+          ))}
         </div>
         <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
           <Filter size={16} className="text-slate-400 shrink-0" />{categories.map(cat => (<button key={cat} onClick={() => setFilter(cat)} className={`px-3 py-1.5 rounded-full text-xs sm:text-sm font-medium whitespace-nowrap transition-all ${filter === cat ? 'bg-indigo-600 text-white ring-2 ring-indigo-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>{cat}</button>))}
