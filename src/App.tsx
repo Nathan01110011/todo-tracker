@@ -325,7 +325,7 @@ const EditLocationModal = ({ item, onSave, onDelete, onClose }: { item: Place, o
             <label className="block space-y-1">
               <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Category</span>
               <select value={category} onChange={(e) => setCategory(e.target.value)} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm">
-                {['Food', 'Drinks', 'Activities', 'Sport', 'Events', 'Other'].map(option => <option key={option} value={option}>{option}</option>)}
+                {['Food', 'Drinks', 'Activities', 'Shopping', 'Sport', 'Events', 'Other'].map(option => <option key={option} value={option}>{option}</option>)}
               </select>
             </label>
           )}
@@ -1218,7 +1218,7 @@ const App = () => {
     });
   };
 
-  const categories = ['TODO', 'Trips', 'Diary', 'Events', 'Food', 'Drinks', 'Activities', 'Sport', 'Hotels', 'Saved', 'Visited', 'All'];
+  const categories = ['TODO', 'Trips', 'Diary', 'Events', 'Food', 'Drinks', 'Activities', 'Shopping', 'Sport', 'Hotels', 'Saved', 'Visited', 'All'];
   const diaryGroups = useMemo(() => {
     const scopedEntries = diaryEntries
       .filter(entry => entry.scope === activeScope)
@@ -1629,7 +1629,7 @@ const App = () => {
                   <h3 className="text-lg font-bold mb-4">Add Place</h3>
                   <input type="text" value={pendingName} onChange={(e) => setPendingName(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border rounded-xl mb-3 outline-none focus:ring-2 focus:ring-indigo-500 text-sm font-semibold" placeholder="Name" />
                   <textarea value={pendingDetails} onChange={(e) => setPendingDetails(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border rounded-xl mb-4 outline-none focus:ring-2 focus:ring-indigo-500 text-sm h-20 resize-none" placeholder="Details" />
-                  <div className="grid grid-cols-2 gap-2">{['Food', 'Drinks', 'Activities', 'Sport', 'Events', 'Hotels', 'Other'].map(cat => (<button key={cat} disabled={isAdding} onClick={() => cat === 'Events' ? setShowEventDateDialog(true) : addPlace(cat)} className="py-2 bg-slate-50 hover:bg-indigo-600 hover:text-white rounded-xl text-sm font-medium transition-all border border-slate-100 flex items-center justify-center gap-2">{isAdding && <Loader2 size={14} className="animate-spin" />}{cat}</button>))}</div>
+                  <div className="grid grid-cols-2 gap-2">{['Food', 'Drinks', 'Activities', 'Shopping', 'Sport', 'Events', 'Hotels', 'Other'].map(cat => (<button key={cat} disabled={isAdding} onClick={() => cat === 'Events' ? setShowEventDateDialog(true) : addPlace(cat)} className="py-2 bg-slate-50 hover:bg-indigo-600 hover:text-white rounded-xl text-sm font-medium transition-all border border-slate-100 flex items-center justify-center gap-2">{isAdding && <Loader2 size={14} className="animate-spin" />}{cat}</button>))}</div>
                   <button onClick={() => { setPendingPlace(null); setShowEventDateDialog(false); }} className="mt-4 text-slate-400 text-sm font-medium">Cancel</button>
                 </div>
               </div>
@@ -1935,7 +1935,7 @@ const App = () => {
                 <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest px-1">
                   {filter === 'Hotels' ? 'Hotels' : filter === 'Visited' ? 'Visited' : filter === 'All' ? 'All Locations' : filter === 'TODO' ? 'To Do' : filter}
                 </h2>
-                {filter === 'Visited' && (<div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1.5 px-1">{['All', 'Events', 'Food', 'Drinks', 'Activities', 'Sport', 'Hotels', 'Other'].map(cat => (<button key={cat} onClick={() => setVisitedFilter(cat)} className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase transition-all whitespace-nowrap ${visitedFilter === cat ? 'bg-indigo-100 text-indigo-600 ring-2 ring-indigo-200' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}>{cat}</button>))}</div>)}
+                {filter === 'Visited' && (<div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1.5 px-1">{['All', 'Events', 'Food', 'Drinks', 'Activities', 'Shopping', 'Sport', 'Hotels', 'Other'].map(cat => (<button key={cat} onClick={() => setVisitedFilter(cat)} className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase transition-all whitespace-nowrap ${visitedFilter === cat ? 'bg-indigo-100 text-indigo-600 ring-2 ring-indigo-200' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}>{cat}</button>))}</div>)}
               </div>
               <div className="space-y-4 sm:space-y-2">
                 {filter === 'Visited' ? (
