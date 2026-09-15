@@ -55,8 +55,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     };
 
+    const ensurePhotoColumns = async (sheet: any) => {
+      if (!sheet) return;
+      await sheet.loadHeaderRow();
+      const requiredColumns = ['comment', 'capturedAt', 'uploadedAt'];
+      const missingColumns = requiredColumns.filter(column => !sheet.headerValues.includes(column));
+      if (missingColumns.length > 0) {
+        await sheet.setHeaderRow([...sheet.headerValues, ...missingColumns]);
+      }
+    };
+
     if (isOwner) {
-      await Promise.all([ensurePlaceColumns(placesSheet, true), ensurePlaceColumns(hotelsSheet)]);
+      await Promise.all([ensurePlaceColumns(placesSheet, true), ensurePlaceColumns(hotelsSheet), ensurePhotoColumns(photosSheet)]);
     }
     
     let routesSheet = doc.sheetsByTitle['Routes'];
@@ -103,13 +113,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         diarySheet ? diarySheet.getRows() : Promise.resolve([])
       ]);
 
-      const photoMap: Record<string, string[]> = {};
+      const photoMap: Record<string, Array<{ url: string; comment: string; capturedAt: string; uploadedAt: string }>> = {};
       photoRows.forEach(row => {
         const locId = row.get('locationId');
         const url = row.get('url');
         if (locId && url) {
           if (!photoMap[locId]) photoMap[locId] = [];
-          photoMap[locId].push(url);
+          photoMap[locId].push({
+            url,
+            comment: photosSheet?.headerValues.includes('comment') ? row.get('comment') || '' : '',
+            capturedAt: photosSheet?.headerValues.includes('capturedAt') ? row.get('capturedAt') || '' : '',
+            uploadedAt: photosSheet?.headerValues.includes('uploadedAt') ? row.get('uploadedAt') || '' : '',
+          });
         }
       });
 
@@ -132,7 +147,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           date: row.get('date') || '',
           eventStartDate: placesSheet?.headerValues.includes('eventStartDate') ? row.get('eventStartDate') || '' : '',
           eventEndDate: placesSheet?.headerValues.includes('eventEndDate') ? row.get('eventEndDate') || '' : '',
-          photos: (photoMap[id] || []).join(','),
+          photos: (photoMap[id] || []).map(photo => photo.url).join(','),
+          photoDetails: photoMap[id] || [],
         };
       });
 
@@ -163,7 +179,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           scope: row.get('scope') || 'Austin',
           return: row.get('return') || '',
           date: row.get('date') || '',
-          photos: (photoMap[id] || []).join(','),
+          photos: (photoMap[id] || []).map(photo => photo.url).join(','),
+          photoDetails: photoMap[id] || [],
         };
       });
 
@@ -196,12 +213,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (req.method === 'POST') {
-      const { id, status, rating, priority, notes, name, title, category, address, lat, lng, scope, return: returnFlag, details, photoUrl, date, eventStartDate, eventEndDate, type = 'place', placeId, placeType, placeIds, tripType, completedPlaceIds, action } = req.body;
+      const { id, status, rating, priority, notes, name, title, category, address, lat, lng, scope, return: returnFlag, details, photoUrl, photoComment, capturedAt, uploadedAt, date, eventStartDate, eventEndDate, type = 'place', placeId, placeType, placeIds, tripType, completedPlaceIds, action } = req.body;
       
       if (photoUrl && id && photosSheet) {
+        await ensurePhotoColumns(photosSheet);
+        const normalizedComment = String(photoComment || '').trim();
+        if (normalizedComment.length > 280) return res.status(400).json({ error: 'Photo comments must be 280 characters or fewer.' });
+        if (action === 'updatePhoto') {
+          const photoRows = await photosSheet.getRows();
+          const photoRow = photoRows.find(row => row.get('locationId') === id && row.get('url') === photoUrl);
+          if (!photoRow) return res.status(404).json({ error: 'Photo not found.' });
+          photoRow.set('comment', normalizedComment);
+          await photoRow.save();
+          return res.status(200).json({ success: true });
+        }
         await photosSheet.addRow({
           locationId: id,
-          url: photoUrl
+          url: photoUrl,
+          comment: normalizedComment,
+          capturedAt: String(capturedAt || ''),
+          uploadedAt: String(uploadedAt || new Date().toISOString())
         });
         return res.status(200).json({ success: true });
       }
