@@ -113,6 +113,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         diarySheet ? diarySheet.getRows() : Promise.resolve([])
       ]);
 
+      const uploadTimestampFromUrl = (url: string) => {
+        const version = url.match(/\/v(\d{10,})\//)?.[1];
+        return version ? new Date(Number(version) * 1000).toISOString() : '';
+      };
       const photoMap: Record<string, Array<{ url: string; comment: string; capturedAt: string; uploadedAt: string }>> = {};
       photoRows.forEach(row => {
         const locId = row.get('locationId');
@@ -123,7 +127,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             url,
             comment: photosSheet?.headerValues.includes('comment') ? row.get('comment') || '' : '',
             capturedAt: photosSheet?.headerValues.includes('capturedAt') ? row.get('capturedAt') || '' : '',
-            uploadedAt: photosSheet?.headerValues.includes('uploadedAt') ? row.get('uploadedAt') || '' : '',
+            uploadedAt: (photosSheet?.headerValues.includes('uploadedAt') ? row.get('uploadedAt') || '' : '') || uploadTimestampFromUrl(url),
           });
         }
       });
