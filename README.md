@@ -13,6 +13,7 @@ A modern, interactive relocation and travel tracker built with React, TypeScript
 - **🔍 Smart Search**: Add new locations instantly using Nominatim (OpenStreetMap) search.
 - **🧳 Trips**: Build ordered routes or flexible unordered city breaks, check off stops as you go, and complete a trip without marking skipped places as visited.
 - **📖 Diary**: Log activities for today or earlier, attach tracker locations or arbitrary places, and capture the current location with browser geolocation.
+- **📷 Photo notes**: Add a short comment to each image and show its camera timestamp when the uploaded file provides one.
 - **✅ Visited History**:
   - Grouped by category.
   - 1-5 Star Ratings.
@@ -71,6 +72,11 @@ Existing Routes rows are treated as ordered, planned trips. Missing Trip columns
 `id`, `date`, `title`, `notes`, `placeId`, `placeType`, `name`, `address`, `lat`, `lng`, `scope`, `createdAt`
 
 The Diary sheet is created automatically when the first authenticated entry is saved.
+
+### "Photos"
+`locationId`, `url`, `comment`, `capturedAt`, `uploadedAt`
+
+The three metadata columns are added automatically after an authenticated request. Existing URL-only photo rows remain supported.
 
 **Note:** Ensure you share your Google Sheet with your `GOOGLE_SERVICE_ACCOUNT_EMAIL` and grant it **Editor** permissions.
 
