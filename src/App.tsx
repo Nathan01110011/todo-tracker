@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 34173)
-Total output lines: 2338
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline } from 'react-leaflet';
@@ -1279,7 +1276,324 @@ const App = () => {
         headers: { 'Content-Type': 'application/json', 'Authorization': appPassword || '' },
         body: JSON.stringify({ type: 'route', id: route.id, action: 'update', ...updates })
       });
-      if (!response.…4173 tokens truncated…          <p className="text-xs text-slate-500 mt-1">Record today or catch up on an earlier day.</p>
+      if (!response.ok) throw new Error('Failed to update trip');
+    } catch (error) {
+      setRoutes(previousRoutes);
+      setError('Failed to update trip. Reverting...');
+      setTimeout(() => setError(null), 3000);
+    }
+  };
+
+  const startTrip = async (route: Route) => {
+    await updateRoute(route, { status: 'active' });
+    setToastMessage(`Trip "${route.name}" started.`);
+  };
+
+  const toggleTripPlace = async (route: Route, compositeId: string) => {
+    if (!isOwner || route.status !== 'active') return;
+    const isComplete = route.completedPlaceIds.includes(compositeId);
+    const completedPlaceIds = isComplete
+      ? route.completedPlaceIds.filter(id => id !== compositeId)
+      : [...route.completedPlaceIds, compositeId];
+    const [type, id] = compositeId.includes(':') ? compositeId.split(':') : ['place', compositeId];
+    if (type === 'place' || type === 'hotel') {
+      await updatePlace(id, { status: isComplete ? 'To Do' : 'Visited', date: isComplete ? '' : format(new Date(), 'yyyy-MM-dd') }, type);
+    }
+    await updateRoute(route, { completedPlaceIds });
+  };
+
+  const completeRoute = async (route: Route) => {
+    if (!isOwner) return;
+    setConfirmationDialog({
+      message: `Complete trip "${route.name}"? Unchecked locations will remain in To Do.`,
+      onConfirm: async () => {
+        const uncheckedUpdates = route.placeIds
+          .filter(compositeId => !route.completedPlaceIds.includes(compositeId))
+          .map(compositeId => {
+            const [type, id] = compositeId.includes(':') ? compositeId.split(':') : ['place', compositeId];
+            if (type !== 'place' && type !== 'hotel') return Promise.resolve();
+            return updatePlace(id, { status: 'To Do' }, type);
+          });
+        await Promise.all(uncheckedUpdates);
+        await updateRoute(route, { status: 'completed' });
+        setToastMessage(`Trip "${route.name}" completed!`);
+      },
+      onCancel: () => {}
+    });
+  };
+
+  const categories = ['TODO', 'Trips', 'Diary', 'Events', 'Food', 'Drinks', 'Activities', 'Shopping', 'Sport', 'Hotels', 'Saved', 'Visited', 'All'];
+  const diaryGroups = useMemo(() => {
+    const scopedEntries = diaryEntries
+      .filter(entry => entry.scope === activeScope)
+      .sort((a, b) => `${b.date}-${b.createdAt}`.localeCompare(`${a.date}-${a.createdAt}`));
+    return scopedEntries.reduce<Record<string, DiaryEntry[]>>((groups, entry) => {
+      if (!groups[entry.date]) groups[entry.date] = [];
+      groups[entry.date].push(entry);
+      return groups;
+    }, {});
+  }, [diaryEntries, activeScope]);
+  const effectiveSidebarWidth = useMemo(() => { if (windowWidth < 640) return view === 'map' ? 0 : 100; if (view === 'map') return 0; if (filter === 'Visited') return 66.66; return sidebarWidth; }, [windowWidth, view, filter, sidebarWidth]);
+
+  const filteredMarkers = useMemo(() => markers.filter(m => m.scope === activeScope), [markers, activeScope]);
+
+  const currentRoutePoints = useMemo(() => {
+    let ids: string[] = [];
+    if (isJourneyMode) {
+      ids = getJourneyPathIds(selectedJourneyPlaces);
+    } else if (activeRouteId && filter === 'Trips') {
+      const route = routes.find(r => r.id === activeRouteId);
+      if (route) ids = route.placeIds;
+    }
+    if (ids.length === 0) return [];
+    
+    return getJourneyItems(ids);
+  }, [isJourneyMode, selectedJourneyPlaces, activeRouteId, routes, places, hotels, markers, filter, journeySortMode, tripType]);
+
+  const showRouteLine = isJourneyMode
+    ? tripType === 'ordered'
+    : routes.find(route => route.id === activeRouteId)?.tripType !== 'unordered';
+
+  const hoveredItem = useMemo(() => {
+    if (!hoveredId) return null;
+    const [type, id] = hoveredId.split(':');
+    const allItems = [
+      ...places.map(p => ({ ...p, type: 'place' as const })), 
+      ...hotels.map(h => ({ ...h, type: 'hotel' as const })), 
+      ...markers.map(m => ({ ...m, type: 'marker' as const }))
+    ];
+    return allItems.find(item => item.id === id && item.type === type) || null;
+  }, [hoveredId, places, hotels, markers]);
+
+  useEffect(() => {
+    if (currentRoutePoints.length >= 2) {
+      const lats = currentRoutePoints.map(p => p.lat);
+      const lngs = currentRoutePoints.map(p => p.lng);
+      const bounds = [
+        [Math.min(...lats), Math.min(...lngs)],
+        [Math.max(...lats), Math.max(...lngs)]
+      ];
+      setMapTarget({ bounds });
+    }
+  }, [currentRoutePoints]);
+
+  const filteredPlaces = useMemo(() => {
+    const scopePlaces = places.filter(p => p.scope === activeScope);
+    if (isJourneyMode) {
+      if (journeyFilter === 'To Do') return scopePlaces.filter(p => p.status === 'To Do');
+      if (journeyFilter === 'Visited') return scopePlaces.filter(p => p.status === 'Visited');
+      return scopePlaces;
+    }
+    if (filter === 'Visited') {
+      let res = scopePlaces.filter(p => p.status === 'Visited');
+      if (visitedFilter !== 'All') res = res.filter(p => p.category === visitedFilter);
+      return res;
+    }
+    if (filter === 'TODO') return scopePlaces.filter(p => p.status === 'To Do');
+    if (filter === 'All') return scopePlaces;
+    if (filter === 'Trips') {
+      if (!activeRouteId) return [];
+      const route = routes.find(r => r.id === activeRouteId);
+      if (!route) return [];
+      return scopePlaces.filter(p =>
+        route.placeIds.includes(`place:${p.id}`) || route.placeIds.includes(p.id)
+      );
+    }
+    if (filter === 'Hotels' || filter === 'Saved') return [];
+    return scopePlaces.filter(p => p.category === filter && p.status === 'To Do');
+  }, [places, filter, activeScope, visitedFilter, isJourneyMode, journeyFilter, routes, activeRouteId]);
+
+  const filteredHotels = useMemo(() => {
+    const scopeHotels = hotels.filter(h => h.scope === activeScope);
+    if (isJourneyMode) {
+      if (journeyFilter === 'To Do') return scopeHotels.filter(h => h.status === 'To Do');
+      if (journeyFilter === 'Visited') return scopeHotels.filter(h => h.status === 'Visited');
+      return scopeHotels;
+    }
+    if (filter === 'Trips') {
+      if (!activeRouteId) return [];
+      const route = routes.find(r => r.id === activeRouteId);
+      if (!route) return [];
+      return scopeHotels.filter(h => route.placeIds.includes(`hotel:${h.id}`));
+    }
+    if (filter === 'Hotels') return scopeHotels.filter(h => h.status === 'To Do');
+    if (filter === 'Visited') {
+      let res = scopeHotels.filter(h => h.status === 'Visited');
+      if (visitedFilter === 'All' || visitedFilter === 'Hotels') return res;
+      return [];
+    }
+    if (filter === 'TODO') return scopeHotels.filter(h => h.status === 'To Do');
+    if (filter === 'All') return scopeHotels;
+    return [];
+  }, [hotels, filter, activeScope, visitedFilter, isJourneyMode, journeyFilter, routes, activeRouteId]);
+
+  const displayItems = useMemo(() => {
+    const items = [
+      ...filteredHotels.map(h => ({ ...h, category: 'Hotels', type: 'hotel' as const })),
+      ...filteredPlaces.map(p => ({ ...p, type: 'place' as const }))
+    ];
+
+    if (filter === 'Visited') return items;
+    return items.sort((a, b) => (parseInt(b.priority) || 0) - (parseInt(a.priority) || 0));
+  }, [filteredHotels, filteredPlaces, filter]);
+
+  const visitedGroups = useMemo(() => {
+    if (filter !== 'Visited') return {};
+    let all = [...places.filter(p => p.scope === activeScope && p.status === 'Visited').map(p => ({ ...p, type: 'place' as const })), ...hotels.filter(h => h.scope === activeScope && h.status === 'Visited').map(h => ({ ...h, category: 'Hotels', type: 'hotel' as const }))];
+    if (visitedFilter !== 'All') all = all.filter(item => item.category === visitedFilter);
+    const groups = all.reduce((acc: any, item) => { const cat = item.category || 'Other'; if (!acc[cat]) acc[cat] = []; acc[cat].push(item); return acc; }, {});
+    Object.keys(groups).forEach(cat => {
+      groups[cat].sort((a: any, b: any) => {
+        const aScore = a.rating ? parseInt(a.rating) : 0; const bScore = b.rating ? parseInt(b.rating) : 0;
+        if (aScore === 0 && bScore !== 0) return -1; if (aScore !== 0 && bScore === 0) return 1; if (aScore !== bScore) return bScore - aScore;
+        const aRet = a.return === 'TRUE' || a.return === true; const bRet = b.return === 'TRUE' || b.return === true;
+        if (aRet && !bRet) return -1; if (!aRet && bRet) return 1; return 0;
+      });
+    });
+    return groups;
+  }, [places, hotels, filter, activeScope, visitedFilter]);
+
+  const getMarkerIcon = (type: string, id: string) => {
+    const compositeId = `marker:${id}`;
+    const isHovered = hoveredId === compositeId;
+    const color = isHovered ? '#f59e0b' : (type === 'home' ? '#4f46e5' : type === 'office' ? '#0891b2' : '#64748b');
+    const scale = isHovered ? 1.2 : 1;
+    const IconComponent = type === 'home' ? Home : type === 'office' ? Briefcase : MapPin;
+
+    return L.divIcon({
+      html: renderToStaticMarkup(
+        <div 
+          style={{ color, transform: `scale(${scale})` }} 
+          className="bg-white rounded-full shadow-lg border-2 border-current flex items-center justify-center w-[30px] h-[30px] transition-all duration-200"
+        >
+          <IconComponent size={18} strokeWidth={2.5} />
+        </div>
+      ),
+      className: 'custom-leaflet-icon',
+      iconSize: [30, 30],
+      iconAnchor: [15, 30],
+    });
+  };
+
+  const getHotelIcon = (id: string) => {
+    const compositeId = `hotel:${id}`;
+    const isHovered = hoveredId === compositeId;
+    const color = isHovered ? '#f59e0b' : '#8b5cf6';
+    const scale = isHovered ? 1.2 : 1;
+
+    return L.divIcon({
+      html: renderToStaticMarkup(
+        <div 
+          style={{ color, transform: `scale(${scale})` }} 
+          className="bg-white rounded-full shadow-lg border-2 border-current flex items-center justify-center w-[30px] h-[30px] transition-all duration-200"
+        >
+          <Bed size={18} strokeWidth={2.5} />
+        </div>
+      ),
+      className: 'custom-leaflet-icon',
+      iconSize: [30, 30],
+      iconAnchor: [15, 30],
+    });
+  };
+
+  const getPlaceIcon = (id: string) => {
+    const compositeId = `place:${id}`;
+    const isHovered = hoveredId === compositeId;
+    const color = isHovered ? '#f59e0b' : '#64748b';
+    const scale = isHovered ? 1.2 : 1;
+
+    return L.divIcon({
+      html: renderToStaticMarkup(
+        <div 
+          style={{ color, transform: `scale(${scale})` }} 
+          className="bg-white rounded-full shadow-lg border-2 border-current flex items-center justify-center w-[30px] h-[30px] transition-all duration-200"
+        >
+          <MapPin size={18} strokeWidth={2.5} />
+        </div>
+      ),
+      className: 'custom-leaflet-icon',
+      iconSize: [30, 30],
+      iconAnchor: [15, 30],
+    });
+  };
+
+  const StarRating = ({ rating, onChange, readOnly = false }: { rating: string, onChange: (r: string) => void, readOnly?: boolean }) => (
+    <div className="flex gap-1 shrink-0">{[1, 2, 3, 4, 5].map(star => (<button key={star} disabled={readOnly} onClick={(e) => { e.stopPropagation(); if (!readOnly) onChange(star.toString()); }} className={`transition-colors ${parseInt(rating) >= star ? 'text-yellow-400' : `text-slate-400 ${readOnly ? '' : 'hover:text-yellow-400'}`}`}><Star size={18} strokeWidth={2.5} fill={parseInt(rating) >= star ? 'currentColor' : 'none'} /></button>))}</div>
+  );
+
+  const PriorityRating = ({ priority, onChange, readOnly = false, compact = false }: { priority: string, onChange: (r: string) => void, readOnly?: boolean, compact?: boolean }) => (
+    <div className="flex items-center gap-0.5 shrink-0" aria-label={priority ? `Priority ${priority} out of 5` : 'No priority set'}>
+      {[1, 2, 3, 4, 5].map(level => {
+        const score = parseInt(priority) || 0;
+        const activeColor = score === 1 ? 'text-rose-300' : score === 2 ? 'text-orange-400' : score === 3 ? 'text-amber-400' : score === 4 ? 'text-lime-500' : 'text-emerald-500';
+        return (
+          <button
+            key={level}
+            type="button"
+            disabled={readOnly}
+            aria-label={`Set priority to ${level} out of 5`}
+            onClick={(e) => { e.stopPropagation(); if (!readOnly) onChange(level.toString()); }}
+            className={`rounded-full transition-all ${compact ? 'p-0.5' : 'p-1'} ${score >= level ? activeColor : `text-slate-400 ${readOnly ? '' : 'hover:text-slate-500'}`}`}
+          >
+            <Circle size={compact ? 12 : 16} strokeWidth={2.5} fill={score >= level ? 'currentColor' : 'none'} />
+          </button>
+        );
+      })}
+    </div>
+  );
+
+  const priorityCardClass = (priority: string) => {
+    const score = parseInt(priority) || 0;
+    if (score === 5) return 'bg-emerald-50/70 border-emerald-200 hover:border-emerald-300';
+    if (score === 4) return 'bg-lime-50/60 border-lime-200 hover:border-lime-300';
+    if (score === 3) return 'bg-amber-50/50 border-amber-200 hover:border-amber-300';
+    if (score === 2) return 'bg-orange-50/40 border-orange-100 hover:border-orange-200';
+    if (score === 1) return 'bg-rose-50/40 border-rose-100 hover:border-rose-200';
+    return 'bg-white border-slate-100 hover:border-indigo-200';
+  };
+
+  return (
+    <div className={`flex flex-col h-screen bg-slate-50 font-sans text-slate-900 ${isDarkMode ? 'theme-dark' : ''} ${isResizing ? 'cursor-col-resize select-none' : ''}`}>
+      {showSignIn && !isOwner && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[400] flex items-center justify-center p-4">
+          <div className="bg-white p-8 rounded-3xl shadow-2xl w-full max-w-md space-y-6 border border-slate-100 text-center">
+            <button onClick={() => { setShowSignIn(false); setPwInput(''); }} className="absolute top-5 right-5 sm:static sm:float-right p-2 rounded-full text-slate-400 hover:bg-slate-100" aria-label="Close sign in"><X size={20} /></button>
+            <div className={`w-16 h-16 mx-auto rounded-2xl flex items-center justify-center ${lockoutUntil ? 'bg-red-50 text-red-600' : 'bg-indigo-50 text-indigo-600'}`}>{lockoutUntil ? <X size={32} /> : <Lock size={32} />}</div>
+            <div className="space-y-1"><h2 className="text-2xl font-bold text-slate-900">Owner sign in</h2><p className="text-slate-500">{lockoutUntil ? `Try again in ${countdown}s` : 'Enter the password to make changes.'}</p></div>
+            <form onSubmit={(e) => { e.preventDefault(); if (!pwInput || lockoutUntil) return; localStorage.setItem('todo_tracker_pw', pwInput); setAppPassword(pwInput); }} className="space-y-4">
+              <input type="password" disabled={!!lockoutUntil} value={pwInput} onChange={(e) => setPwInput(e.target.value)} placeholder="Password" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" autoFocus />
+              {isAuthError && lockoutUntil && <p className="text-sm text-red-600">That password was not accepted.</p>}
+              <button type="submit" disabled={!!lockoutUntil} className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 flex items-center justify-center gap-2 disabled:opacity-50"><LogIn size={20} /> Sign in</button>
+            </form>
+          </div>
+        </div>
+      )}
+      {activePhotoItem && (<PhotoModal
+        item={activePhotoItem}
+        isOpen={!!activePhotoItem}
+        onClose={() => setActivePhotoItem(null)}
+        onUpload={(photo) => handlePhotoUpload(activePhotoItem, photo)}
+        onCommentSave={(url, comment) => handlePhotoCommentSave(activePhotoItem, url, comment)}
+        appPassword={appPassword}
+        onExpand={(urls, index) => setLightboxState({ urls, index })}
+        onError={setToastMessage}
+      />)}
+      {isOwner && editingItem && (<EditLocationModal item={editingItem} onSave={updatePlace} onDelete={deletePlace} onClose={() => setEditingItem(null)} />)}
+      {isOwner && pendingPlace && showEventDateDialog && (
+        <EventDateDialog
+          placeName={pendingName || pendingPlace.display_name.split(',')[0]}
+          isAdding={isAdding}
+          onConfirm={(startDate, endDate) => addPlace('Events', startDate, endDate)}
+          onCancel={() => setShowEventDateDialog(false)}
+        />
+      )}
+      {isOwner && showDiaryDialog && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[120] flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg max-h-[92vh] overflow-y-auto shadow-2xl p-5 sm:p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2"><BookOpen size={20} className="text-indigo-600" /> Add Diary Entry</h3>
+                <p className="text-xs text-slate-500 mt-1">Record today or catch up on an earlier day.</p>
               </div>
               <button onClick={resetDiaryDialog} className="p-2 text-slate-400 hover:text-slate-700"><X size={20} /></button>
             </div>
