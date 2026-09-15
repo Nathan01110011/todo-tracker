@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 34173)
+Total output lines: 2338
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline } from 'react-leaflet';
@@ -48,6 +51,13 @@ const hotelMarkerIcon = createCustomIcon(Bed, '#8b5cf6'); // Violet
 const defaultPinIcon = createCustomIcon(MapPin, '#64748b'); // Slate
 
 // Types
+interface PhotoDetails {
+  url: string;
+  comment: string;
+  capturedAt: string;
+  uploadedAt: string;
+}
+
 interface Place {
   id: string;
   name: string;
@@ -67,6 +77,7 @@ interface Place {
   eventStartDate?: string;
   eventEndDate?: string;
   photos?: string;
+  photoDetails?: PhotoDetails[];
 }
 
 interface MarkerData {
@@ -605,10 +616,29 @@ const PhotoPreviewGrid = ({ photos, onExpand }: { photos: string, onExpand: (url
   return <div className="mt-3 mb-1 shrink-0">{renderGrid()}</div>;
 };
 
-const PhotoModal = ({ item, isOpen, onClose, onUpload, appPassword, onExpand, onError }: { item: Place, isOpen: boolean, onClose: () => void, onUpload: (url: string) => void, appPassword: string | null, onExpand: (urls: string[], index: number) => void, onError: (message: string) => void }) => {
+const photoDetailsFor = (item: Place): PhotoDetails[] => item.photoDetails?.length
+  ? item.photoDetails
+  : (item.photos || '').split(',').filter(Boolean).map(url => ({ url, comment: '', capturedAt: '', uploadedAt: '' }));
+
+const formatPhotoTimestamp = (value: string) => {
+  if (!value) return '';
+  const normalized = /^\d{4}:\d{2}:\d{2} /.test(value)
+    ? value.replace(/^(\d{4}):(\d{2}):(\d{2}) /, '$1-$2-$3T')
+    : value;
+  const parsed = new Date(normalized);
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+};
+
+const PhotoModal = ({ item, isOpen, onClose, onUpload, onCommentSave, appPassword, onExpand, onError }: { item: Place, isOpen: boolean, onClose: () => void, onUpload: (photo: PhotoDetails) => Promise<void>, onCommentSave: (url: string, comment: string) => Promise<void>, appPassword: string | null, onExpand: (urls: string[], index: number) => void, onError: (message: string) => void }) => {
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
+  const [savingCommentUrl, setSavingCommentUrl] = useState<string | null>(null);
+  const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const photos = useMemo(() => item.photos ? item.photos.split(',').filter(Boolean) : [], [item.photos]);
+  const photos = useMemo(() => photoDetailsFor(item), [item.photos, item.photoDetails]);
+  const photoUrls = useMemo(() => photos.map(photo => photo.url), [photos]);
+  useEffect(() => {
+    setCommentDrafts(Object.fromEntries(photos.map(photo => [photo.url, photo.comment])));
+  }, [photos]);
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     if (files.length === 0 || !appPassword) return;
@@ -625,10 +655,21 @@ const PhotoModal = ({ item, isOpen, onClose, onUpload, appPassword, onExpand, on
         formData.append('api_key', sigData.apiKey);
         formData.append('timestamp', sigData.timestamp);
         formData.append('signature', sigData.signature);
-        formData.append('folder', 'tracker_photos');
+        formData.append('folder', sigData.folder);
+        formData.append('media_metadata', String(sigData.mediaMetadata));
         const res = await fetch(`https://api.cloudinary.com/v1_1/${sigData.cloudName}/image/upload`, { method: 'POST', body: formData });
         const data = await res.json();
-        if (data.secure_url) await onUpload(data.secure_url);
+        if (!res.ok) throw new Error(data.error?.message || 'Cloudinary upload failed');
+        if (data.secure_url) {
+          const metadata = data.media_metadata || data.image_metadata || {};
+          const capturedAt = metadata.DateTimeOriginal || metadata.DateTimeDigitized || metadata.CreateDate || metadata.DateTime || '';
+          await onUpload({
+            url: data.secure_url,
+            comment: '',
+            capturedAt: String(capturedAt),
+            uploadedAt: data.created_at || new Date().toISOString(),
+          });
+        }
       }
     } catch (err: any) {
       console.error("Secure upload process failed:", err);
@@ -651,14 +692,46 @@ const PhotoModal = ({ item, isOpen, onClose, onUpload, appPassword, onExpand, on
             <div className="h-64 border-2 border-dashed border-slate-200 rounded-3xl flex flex-col items-center justify-center gap-4 text-slate-400 bg-slate-50/50"><ImageIcon size={48} strokeWidth={1.5} /><p className="text-sm font-medium">No photos yet for this visit.</p></div>
           ) : (
             <div className="flex flex-col gap-10">
-              {photos.map((url, i) => (
-                <div key={i} onClick={() => onExpand(photos, i)} className="w-full rounded-2xl sm:rounded-3xl overflow-hidden shadow-lg border border-slate-100 group relative cursor-pointer bg-slate-50 flex items-center justify-center min-h-[300px]">
-                  <img src={url} alt={`Visit ${i+1}`} className="w-full h-auto max-h-[75vh] block object-contain" />
-                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
-                    <div className="bg-white/30 backdrop-blur-md p-4 rounded-full text-white shadow-xl"><Maximize2 size={32} strokeWidth={2.5} /></div>
+              {photos.map((photo, i) => {
+                const timestamp = formatPhotoTimestamp(photo.capturedAt || photo.uploadedAt);
+                const draft = commentDrafts[photo.url] ?? photo.comment;
+                return (
+                <div key={photo.url} className="w-full rounded-2xl sm:rounded-3xl overflow-hidden shadow-lg border border-slate-100 bg-white">
+                  <div onClick={() => onExpand(photoUrls, i)} className="group relative cursor-pointer bg-slate-50 flex items-center justify-center min-h-[300px]">
+                    <img src={photo.url} alt={photo.comment || `Visit ${i+1}`} className="w-full h-auto max-h-[75vh] block object-contain" />
+                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
+                      <div className="bg-white/30 backdrop-blur-md p-4 rounded-full text-white shadow-xl"><Maximize2 size={32} strokeWidth={2.5} /></div>
+                    </div>
+                  </div>
+                  <div className="p-4 sm:p-5 space-y-3">
+                    {timestamp && <p className="text-xs font-semibold text-slate-500">{photo.capturedAt ? 'Taken' : 'Uploaded'} {timestamp}</p>}
+                    {appPassword ? <>
+                      <textarea
+                        value={draft}
+                        maxLength={280}
+                        onChange={event => setCommentDrafts(current => ({ ...current, [photo.url]: event.target.value }))}
+                        placeholder="What did you order, or what do you want to remember?"
+                        className="w-full min-h-20 resize-y px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-[10px] font-bold text-slate-400">{draft.length}/280</span>
+                        <button
+                          disabled={savingCommentUrl === photo.url || draft.trim() === photo.comment}
+                          onClick={async () => {
+                            setSavingCommentUrl(photo.url);
+                            try { await onCommentSave(photo.url, draft); }
+                            catch (error: any) { onError(error.message || 'Comment could not be saved.'); }
+                            finally { setSavingCommentUrl(null); }
+                          }}
+                          className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold disabled:opacity-40"
+                        >
+                          {savingCommentUrl === photo.url ? 'Saving…' : 'Save comment'}
+                        </button>
+                      </div>
+                    </> : photo.comment ? <p className="text-sm text-slate-700 whitespace-pre-wrap">{photo.comment}</p> : null}
                   </div>
                 </div>
-              ))}
+              )})}
             </div>
           )}
         </div>
@@ -990,17 +1063,51 @@ const App = () => {
     });
   };
 
-  const handlePhotoUpload = async (item: Place, url: string) => {
+  const handlePhotoUpload = async (item: Place, photo: PhotoDetails) => {
     if (!isOwner || !appPassword) return;
     try {
-      const response = await fetch('/api/places', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': appPassword }, body: JSON.stringify({ id: item.id, photoUrl: url }), });
+      const response = await fetch('/api/places', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': appPassword }, body: JSON.stringify({
+        id: item.id,
+        photoUrl: photo.url,
+        capturedAt: photo.capturedAt,
+        uploadedAt: photo.uploadedAt,
+      }), });
       if (response.ok) {
-        const up = (p: string | undefined) => { const ex = p ? p.split(',') : []; return [...ex, url].join(','); };
-        if (item.type === 'hotel') setHotels(prev => prev.map(h => h.id === item.id ? { ...h, photos: up(h.photos) } : h));
-        else setPlaces(prev => prev.map(p => p.id === item.id ? { ...p, photos: up(p.photos) } : p));
-        setActivePhotoItem(prev => (prev && prev.id === item.id ? { ...prev, photos: up(prev.photos) } : prev));
+        const withPhoto = (place: Place) => ({
+          ...place,
+          photos: [...(place.photos ? place.photos.split(',').filter(Boolean) : []), photo.url].join(','),
+          photoDetails: [...photoDetailsFor(place), photo],
+        });
+        if (item.type === 'hotel') setHotels(prev => prev.map(h => h.id === item.id ? withPhoto(h) : h));
+        else setPlaces(prev => prev.map(p => p.id === item.id ? withPhoto(p) : p));
+        setActivePhotoItem(prev => (prev && prev.id === item.id ? withPhoto(prev) : prev));
+      } else {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || 'Photo linked failed.');
       }
-    } catch (err) { setToastMessage("Photo linked failed."); }
+    } catch (err: any) { throw new Error(err.message || 'Photo linked failed.'); }
+  };
+
+  const handlePhotoCommentSave = async (item: Place, photoUrl: string, comment: string) => {
+    if (!isOwner || !appPassword) return;
+    const normalizedComment = comment.trim();
+    const response = await fetch('/api/places', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': appPassword },
+      body: JSON.stringify({ id: item.id, photoUrl, photoComment: normalizedComment, action: 'updatePhoto' }),
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.error || 'Comment could not be saved.');
+    }
+    const withComment = (place: Place) => ({
+      ...place,
+      photoDetails: photoDetailsFor(place).map(photo => photo.url === photoUrl ? { ...photo, comment: normalizedComment } : photo),
+    });
+    if (item.type === 'hotel') setHotels(prev => prev.map(h => h.id === item.id ? withComment(h) : h));
+    else setPlaces(prev => prev.map(p => p.id === item.id ? withComment(p) : p));
+    setActivePhotoItem(prev => (prev && prev.id === item.id ? withComment(prev) : prev));
+    setToastMessage('Photo comment saved.');
   };
 
   const getJourneyItems = (ids: string[]) => {
@@ -1172,315 +1279,7 @@ const App = () => {
         headers: { 'Content-Type': 'application/json', 'Authorization': appPassword || '' },
         body: JSON.stringify({ type: 'route', id: route.id, action: 'update', ...updates })
       });
-      if (!response.ok) throw new Error('Failed to update trip');
-    } catch (error) {
-      setRoutes(previousRoutes);
-      setError('Failed to update trip. Reverting...');
-      setTimeout(() => setError(null), 3000);
-    }
-  };
-
-  const startTrip = async (route: Route) => {
-    await updateRoute(route, { status: 'active' });
-    setToastMessage(`Trip "${route.name}" started.`);
-  };
-
-  const toggleTripPlace = async (route: Route, compositeId: string) => {
-    if (!isOwner || route.status !== 'active') return;
-    const isComplete = route.completedPlaceIds.includes(compositeId);
-    const completedPlaceIds = isComplete
-      ? route.completedPlaceIds.filter(id => id !== compositeId)
-      : [...route.completedPlaceIds, compositeId];
-    const [type, id] = compositeId.includes(':') ? compositeId.split(':') : ['place', compositeId];
-    if (type === 'place' || type === 'hotel') {
-      await updatePlace(id, { status: isComplete ? 'To Do' : 'Visited', date: isComplete ? '' : format(new Date(), 'yyyy-MM-dd') }, type);
-    }
-    await updateRoute(route, { completedPlaceIds });
-  };
-
-  const completeRoute = async (route: Route) => {
-    if (!isOwner) return;
-    setConfirmationDialog({
-      message: `Complete trip "${route.name}"? Unchecked locations will remain in To Do.`,
-      onConfirm: async () => {
-        const uncheckedUpdates = route.placeIds
-          .filter(compositeId => !route.completedPlaceIds.includes(compositeId))
-          .map(compositeId => {
-            const [type, id] = compositeId.includes(':') ? compositeId.split(':') : ['place', compositeId];
-            if (type !== 'place' && type !== 'hotel') return Promise.resolve();
-            return updatePlace(id, { status: 'To Do' }, type);
-          });
-        await Promise.all(uncheckedUpdates);
-        await updateRoute(route, { status: 'completed' });
-        setToastMessage(`Trip "${route.name}" completed!`);
-      },
-      onCancel: () => {}
-    });
-  };
-
-  const categories = ['TODO', 'Trips', 'Diary', 'Events', 'Food', 'Drinks', 'Activities', 'Shopping', 'Sport', 'Hotels', 'Saved', 'Visited', 'All'];
-  const diaryGroups = useMemo(() => {
-    const scopedEntries = diaryEntries
-      .filter(entry => entry.scope === activeScope)
-      .sort((a, b) => `${b.date}-${b.createdAt}`.localeCompare(`${a.date}-${a.createdAt}`));
-    return scopedEntries.reduce<Record<string, DiaryEntry[]>>((groups, entry) => {
-      if (!groups[entry.date]) groups[entry.date] = [];
-      groups[entry.date].push(entry);
-      return groups;
-    }, {});
-  }, [diaryEntries, activeScope]);
-  const effectiveSidebarWidth = useMemo(() => { if (windowWidth < 640) return view === 'map' ? 0 : 100; if (view === 'map') return 0; if (filter === 'Visited') return 66.66; return sidebarWidth; }, [windowWidth, view, filter, sidebarWidth]);
-
-  const filteredMarkers = useMemo(() => markers.filter(m => m.scope === activeScope), [markers, activeScope]);
-
-  const currentRoutePoints = useMemo(() => {
-    let ids: string[] = [];
-    if (isJourneyMode) {
-      ids = getJourneyPathIds(selectedJourneyPlaces);
-    } else if (activeRouteId && filter === 'Trips') {
-      const route = routes.find(r => r.id === activeRouteId);
-      if (route) ids = route.placeIds;
-    }
-    if (ids.length === 0) return [];
-    
-    return getJourneyItems(ids);
-  }, [isJourneyMode, selectedJourneyPlaces, activeRouteId, routes, places, hotels, markers, filter, journeySortMode, tripType]);
-
-  const showRouteLine = isJourneyMode
-    ? tripType === 'ordered'
-    : routes.find(route => route.id === activeRouteId)?.tripType !== 'unordered';
-
-  const hoveredItem = useMemo(() => {
-    if (!hoveredId) return null;
-    const [type, id] = hoveredId.split(':');
-    const allItems = [
-      ...places.map(p => ({ ...p, type: 'place' as const })), 
-      ...hotels.map(h => ({ ...h, type: 'hotel' as const })), 
-      ...markers.map(m => ({ ...m, type: 'marker' as const }))
-    ];
-    return allItems.find(item => item.id === id && item.type === type) || null;
-  }, [hoveredId, places, hotels, markers]);
-
-  useEffect(() => {
-    if (currentRoutePoints.length >= 2) {
-      const lats = currentRoutePoints.map(p => p.lat);
-      const lngs = currentRoutePoints.map(p => p.lng);
-      const bounds = [
-        [Math.min(...lats), Math.min(...lngs)],
-        [Math.max(...lats), Math.max(...lngs)]
-      ];
-      setMapTarget({ bounds });
-    }
-  }, [currentRoutePoints]);
-
-  const filteredPlaces = useMemo(() => {
-    const scopePlaces = places.filter(p => p.scope === activeScope);
-    if (isJourneyMode) {
-      if (journeyFilter === 'To Do') return scopePlaces.filter(p => p.status === 'To Do');
-      if (journeyFilter === 'Visited') return scopePlaces.filter(p => p.status === 'Visited');
-      return scopePlaces;
-    }
-    if (filter === 'Visited') {
-      let res = scopePlaces.filter(p => p.status === 'Visited');
-      if (visitedFilter !== 'All') res = res.filter(p => p.category === visitedFilter);
-      return res;
-    }
-    if (filter === 'TODO') return scopePlaces.filter(p => p.status === 'To Do');
-    if (filter === 'All') return scopePlaces;
-    if (filter === 'Trips') {
-      if (!activeRouteId) return [];
-      const route = routes.find(r => r.id === activeRouteId);
-      if (!route) return [];
-      return scopePlaces.filter(p =>
-        route.placeIds.includes(`place:${p.id}`) || route.placeIds.includes(p.id)
-      );
-    }
-    if (filter === 'Hotels' || filter === 'Saved') return [];
-    return scopePlaces.filter(p => p.category === filter && p.status === 'To Do');
-  }, [places, filter, activeScope, visitedFilter, isJourneyMode, journeyFilter, routes, activeRouteId]);
-
-  const filteredHotels = useMemo(() => {
-    const scopeHotels = hotels.filter(h => h.scope === activeScope);
-    if (isJourneyMode) {
-      if (journeyFilter === 'To Do') return scopeHotels.filter(h => h.status === 'To Do');
-      if (journeyFilter === 'Visited') return scopeHotels.filter(h => h.status === 'Visited');
-      return scopeHotels;
-    }
-    if (filter === 'Trips') {
-      if (!activeRouteId) return [];
-      const route = routes.find(r => r.id === activeRouteId);
-      if (!route) return [];
-      return scopeHotels.filter(h => route.placeIds.includes(`hotel:${h.id}`));
-    }
-    if (filter === 'Hotels') return scopeHotels.filter(h => h.status === 'To Do');
-    if (filter === 'Visited') {
-      let res = scopeHotels.filter(h => h.status === 'Visited');
-      if (visitedFilter === 'All' || visitedFilter === 'Hotels') return res;
-      return [];
-    }
-    if (filter === 'TODO') return scopeHotels.filter(h => h.status === 'To Do');
-    if (filter === 'All') return scopeHotels;
-    return [];
-  }, [hotels, filter, activeScope, visitedFilter, isJourneyMode, journeyFilter, routes, activeRouteId]);
-
-  const displayItems = useMemo(() => {
-    const items = [
-      ...filteredHotels.map(h => ({ ...h, category: 'Hotels', type: 'hotel' as const })),
-      ...filteredPlaces.map(p => ({ ...p, type: 'place' as const }))
-    ];
-
-    if (filter === 'Visited') return items;
-    return items.sort((a, b) => (parseInt(b.priority) || 0) - (parseInt(a.priority) || 0));
-  }, [filteredHotels, filteredPlaces, filter]);
-
-  const visitedGroups = useMemo(() => {
-    if (filter !== 'Visited') return {};
-    let all = [...places.filter(p => p.scope === activeScope && p.status === 'Visited').map(p => ({ ...p, type: 'place' as const })), ...hotels.filter(h => h.scope === activeScope && h.status === 'Visited').map(h => ({ ...h, category: 'Hotels', type: 'hotel' as const }))];
-    if (visitedFilter !== 'All') all = all.filter(item => item.category === visitedFilter);
-    const groups = all.reduce((acc: any, item) => { const cat = item.category || 'Other'; if (!acc[cat]) acc[cat] = []; acc[cat].push(item); return acc; }, {});
-    Object.keys(groups).forEach(cat => {
-      groups[cat].sort((a: any, b: any) => {
-        const aScore = a.rating ? parseInt(a.rating) : 0; const bScore = b.rating ? parseInt(b.rating) : 0;
-        if (aScore === 0 && bScore !== 0) return -1; if (aScore !== 0 && bScore === 0) return 1; if (aScore !== bScore) return bScore - aScore;
-        const aRet = a.return === 'TRUE' || a.return === true; const bRet = b.return === 'TRUE' || b.return === true;
-        if (aRet && !bRet) return -1; if (!aRet && bRet) return 1; return 0;
-      });
-    });
-    return groups;
-  }, [places, hotels, filter, activeScope, visitedFilter]);
-
-  const getMarkerIcon = (type: string, id: string) => {
-    const compositeId = `marker:${id}`;
-    const isHovered = hoveredId === compositeId;
-    const color = isHovered ? '#f59e0b' : (type === 'home' ? '#4f46e5' : type === 'office' ? '#0891b2' : '#64748b');
-    const scale = isHovered ? 1.2 : 1;
-    const IconComponent = type === 'home' ? Home : type === 'office' ? Briefcase : MapPin;
-
-    return L.divIcon({
-      html: renderToStaticMarkup(
-        <div 
-          style={{ color, transform: `scale(${scale})` }} 
-          className="bg-white rounded-full shadow-lg border-2 border-current flex items-center justify-center w-[30px] h-[30px] transition-all duration-200"
-        >
-          <IconComponent size={18} strokeWidth={2.5} />
-        </div>
-      ),
-      className: 'custom-leaflet-icon',
-      iconSize: [30, 30],
-      iconAnchor: [15, 30],
-    });
-  };
-
-  const getHotelIcon = (id: string) => {
-    const compositeId = `hotel:${id}`;
-    const isHovered = hoveredId === compositeId;
-    const color = isHovered ? '#f59e0b' : '#8b5cf6';
-    const scale = isHovered ? 1.2 : 1;
-
-    return L.divIcon({
-      html: renderToStaticMarkup(
-        <div 
-          style={{ color, transform: `scale(${scale})` }} 
-          className="bg-white rounded-full shadow-lg border-2 border-current flex items-center justify-center w-[30px] h-[30px] transition-all duration-200"
-        >
-          <Bed size={18} strokeWidth={2.5} />
-        </div>
-      ),
-      className: 'custom-leaflet-icon',
-      iconSize: [30, 30],
-      iconAnchor: [15, 30],
-    });
-  };
-
-  const getPlaceIcon = (id: string) => {
-    const compositeId = `place:${id}`;
-    const isHovered = hoveredId === compositeId;
-    const color = isHovered ? '#f59e0b' : '#64748b';
-    const scale = isHovered ? 1.2 : 1;
-
-    return L.divIcon({
-      html: renderToStaticMarkup(
-        <div 
-          style={{ color, transform: `scale(${scale})` }} 
-          className="bg-white rounded-full shadow-lg border-2 border-current flex items-center justify-center w-[30px] h-[30px] transition-all duration-200"
-        >
-          <MapPin size={18} strokeWidth={2.5} />
-        </div>
-      ),
-      className: 'custom-leaflet-icon',
-      iconSize: [30, 30],
-      iconAnchor: [15, 30],
-    });
-  };
-
-  const StarRating = ({ rating, onChange, readOnly = false }: { rating: string, onChange: (r: string) => void, readOnly?: boolean }) => (
-    <div className="flex gap-1 shrink-0">{[1, 2, 3, 4, 5].map(star => (<button key={star} disabled={readOnly} onClick={(e) => { e.stopPropagation(); if (!readOnly) onChange(star.toString()); }} className={`transition-colors ${parseInt(rating) >= star ? 'text-yellow-400' : `text-slate-400 ${readOnly ? '' : 'hover:text-yellow-400'}`}`}><Star size={18} strokeWidth={2.5} fill={parseInt(rating) >= star ? 'currentColor' : 'none'} /></button>))}</div>
-  );
-
-  const PriorityRating = ({ priority, onChange, readOnly = false, compact = false }: { priority: string, onChange: (r: string) => void, readOnly?: boolean, compact?: boolean }) => (
-    <div className="flex items-center gap-0.5 shrink-0" aria-label={priority ? `Priority ${priority} out of 5` : 'No priority set'}>
-      {[1, 2, 3, 4, 5].map(level => {
-        const score = parseInt(priority) || 0;
-        const activeColor = score === 1 ? 'text-rose-300' : score === 2 ? 'text-orange-400' : score === 3 ? 'text-amber-400' : score === 4 ? 'text-lime-500' : 'text-emerald-500';
-        return (
-          <button
-            key={level}
-            type="button"
-            disabled={readOnly}
-            aria-label={`Set priority to ${level} out of 5`}
-            onClick={(e) => { e.stopPropagation(); if (!readOnly) onChange(level.toString()); }}
-            className={`rounded-full transition-all ${compact ? 'p-0.5' : 'p-1'} ${score >= level ? activeColor : `text-slate-400 ${readOnly ? '' : 'hover:text-slate-500'}`}`}
-          >
-            <Circle size={compact ? 12 : 16} strokeWidth={2.5} fill={score >= level ? 'currentColor' : 'none'} />
-          </button>
-        );
-      })}
-    </div>
-  );
-
-  const priorityCardClass = (priority: string) => {
-    const score = parseInt(priority) || 0;
-    if (score === 5) return 'bg-emerald-50/70 border-emerald-200 hover:border-emerald-300';
-    if (score === 4) return 'bg-lime-50/60 border-lime-200 hover:border-lime-300';
-    if (score === 3) return 'bg-amber-50/50 border-amber-200 hover:border-amber-300';
-    if (score === 2) return 'bg-orange-50/40 border-orange-100 hover:border-orange-200';
-    if (score === 1) return 'bg-rose-50/40 border-rose-100 hover:border-rose-200';
-    return 'bg-white border-slate-100 hover:border-indigo-200';
-  };
-
-  return (
-    <div className={`flex flex-col h-screen bg-slate-50 font-sans text-slate-900 ${isDarkMode ? 'theme-dark' : ''} ${isResizing ? 'cursor-col-resize select-none' : ''}`}>
-      {showSignIn && !isOwner && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[400] flex items-center justify-center p-4">
-          <div className="bg-white p-8 rounded-3xl shadow-2xl w-full max-w-md space-y-6 border border-slate-100 text-center">
-            <button onClick={() => { setShowSignIn(false); setPwInput(''); }} className="absolute top-5 right-5 sm:static sm:float-right p-2 rounded-full text-slate-400 hover:bg-slate-100" aria-label="Close sign in"><X size={20} /></button>
-            <div className={`w-16 h-16 mx-auto rounded-2xl flex items-center justify-center ${lockoutUntil ? 'bg-red-50 text-red-600' : 'bg-indigo-50 text-indigo-600'}`}>{lockoutUntil ? <X size={32} /> : <Lock size={32} />}</div>
-            <div className="space-y-1"><h2 className="text-2xl font-bold text-slate-900">Owner sign in</h2><p className="text-slate-500">{lockoutUntil ? `Try again in ${countdown}s` : 'Enter the password to make changes.'}</p></div>
-            <form onSubmit={(e) => { e.preventDefault(); if (!pwInput || lockoutUntil) return; localStorage.setItem('todo_tracker_pw', pwInput); setAppPassword(pwInput); }} className="space-y-4">
-              <input type="password" disabled={!!lockoutUntil} value={pwInput} onChange={(e) => setPwInput(e.target.value)} placeholder="Password" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" autoFocus />
-              {isAuthError && lockoutUntil && <p className="text-sm text-red-600">That password was not accepted.</p>}
-              <button type="submit" disabled={!!lockoutUntil} className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 flex items-center justify-center gap-2 disabled:opacity-50"><LogIn size={20} /> Sign in</button>
-            </form>
-          </div>
-        </div>
-      )}
-      {activePhotoItem && (<PhotoModal item={activePhotoItem} isOpen={!!activePhotoItem} onClose={() => setActivePhotoItem(null)} onUpload={(url) => handlePhotoUpload(activePhotoItem, url)} appPassword={appPassword} onExpand={(urls, index) => setLightboxState({ urls, index })} onError={setToastMessage} />)}
-      {isOwner && editingItem && (<EditLocationModal item={editingItem} onSave={updatePlace} onDelete={deletePlace} onClose={() => setEditingItem(null)} />)}
-      {isOwner && pendingPlace && showEventDateDialog && (
-        <EventDateDialog
-          placeName={pendingName || pendingPlace.display_name.split(',')[0]}
-          isAdding={isAdding}
-          onConfirm={(startDate, endDate) => addPlace('Events', startDate, endDate)}
-          onCancel={() => setShowEventDateDialog(false)}
-        />
-      )}
-      {isOwner && showDiaryDialog && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[120] flex items-center justify-center p-3 sm:p-4">
-          <div className="bg-white rounded-2xl w-full max-w-lg max-h-[92vh] overflow-y-auto shadow-2xl p-5 sm:p-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2"><BookOpen size={20} className="text-indigo-600" /> Add Diary Entry</h3>
-                <p className="text-xs text-slate-500 mt-1">Record today or catch up on an earlier day.</p>
+      if (!response.…4173 tokens truncated…          <p className="text-xs text-slate-500 mt-1">Record today or catch up on an earlier day.</p>
               </div>
               <button onClick={resetDiaryDialog} className="p-2 text-slate-400 hover:text-slate-700"><X size={20} /></button>
             </div>
