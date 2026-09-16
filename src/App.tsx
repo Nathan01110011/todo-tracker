@@ -48,6 +48,13 @@ const hotelMarkerIcon = createCustomIcon(Bed, '#8b5cf6'); // Violet
 const defaultPinIcon = createCustomIcon(MapPin, '#64748b'); // Slate
 
 // Types
+interface PhotoDetails {
+  url: string;
+  comment: string;
+  capturedAt: string;
+  uploadedAt: string;
+}
+
 interface Place {
   id: string;
   name: string;
@@ -67,6 +74,7 @@ interface Place {
   eventStartDate?: string;
   eventEndDate?: string;
   photos?: string;
+  photoDetails?: PhotoDetails[];
 }
 
 interface MarkerData {
@@ -605,10 +613,29 @@ const PhotoPreviewGrid = ({ photos, onExpand }: { photos: string, onExpand: (url
   return <div className="mt-3 mb-1 shrink-0">{renderGrid()}</div>;
 };
 
-const PhotoModal = ({ item, isOpen, onClose, onUpload, appPassword, onExpand, onError }: { item: Place, isOpen: boolean, onClose: () => void, onUpload: (url: string) => void, appPassword: string | null, onExpand: (urls: string[], index: number) => void, onError: (message: string) => void }) => {
+const photoDetailsFor = (item: Place): PhotoDetails[] => item.photoDetails?.length
+  ? item.photoDetails
+  : (item.photos || '').split(',').filter(Boolean).map(url => ({ url, comment: '', capturedAt: '', uploadedAt: '' }));
+
+const formatPhotoTimestamp = (value: string) => {
+  if (!value) return '';
+  const normalized = /^\d{4}:\d{2}:\d{2} /.test(value)
+    ? value.replace(/^(\d{4}):(\d{2}):(\d{2}) /, '$1-$2-$3T')
+    : value;
+  const parsed = new Date(normalized);
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+};
+
+const PhotoModal = ({ item, isOpen, onClose, onUpload, onCommentSave, appPassword, onExpand, onError }: { item: Place, isOpen: boolean, onClose: () => void, onUpload: (photo: PhotoDetails) => Promise<void>, onCommentSave: (url: string, comment: string) => Promise<void>, appPassword: string | null, onExpand: (urls: string[], index: number) => void, onError: (message: string) => void }) => {
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
+  const [savingCommentUrl, setSavingCommentUrl] = useState<string | null>(null);
+  const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const photos = useMemo(() => item.photos ? item.photos.split(',').filter(Boolean) : [], [item.photos]);
+  const photos = useMemo(() => photoDetailsFor(item), [item.photos, item.photoDetails]);
+  const photoUrls = useMemo(() => photos.map(photo => photo.url), [photos]);
+  useEffect(() => {
+    setCommentDrafts(Object.fromEntries(photos.map(photo => [photo.url, photo.comment])));
+  }, [photos]);
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     if (files.length === 0 || !appPassword) return;
@@ -625,10 +652,21 @@ const PhotoModal = ({ item, isOpen, onClose, onUpload, appPassword, onExpand, on
         formData.append('api_key', sigData.apiKey);
         formData.append('timestamp', sigData.timestamp);
         formData.append('signature', sigData.signature);
-        formData.append('folder', 'tracker_photos');
+        formData.append('folder', sigData.folder);
+        formData.append('media_metadata', String(sigData.mediaMetadata));
         const res = await fetch(`https://api.cloudinary.com/v1_1/${sigData.cloudName}/image/upload`, { method: 'POST', body: formData });
         const data = await res.json();
-        if (data.secure_url) await onUpload(data.secure_url);
+        if (!res.ok) throw new Error(data.error?.message || 'Cloudinary upload failed');
+        if (data.secure_url) {
+          const metadata = data.media_metadata || data.image_metadata || {};
+          const capturedAt = metadata.DateTimeOriginal || metadata.DateTimeDigitized || metadata.CreateDate || metadata.DateTime || '';
+          await onUpload({
+            url: data.secure_url,
+            comment: '',
+            capturedAt: String(capturedAt),
+            uploadedAt: data.created_at || new Date().toISOString(),
+          });
+        }
       }
     } catch (err: any) {
       console.error("Secure upload process failed:", err);
@@ -651,14 +689,46 @@ const PhotoModal = ({ item, isOpen, onClose, onUpload, appPassword, onExpand, on
             <div className="h-64 border-2 border-dashed border-slate-200 rounded-3xl flex flex-col items-center justify-center gap-4 text-slate-400 bg-slate-50/50"><ImageIcon size={48} strokeWidth={1.5} /><p className="text-sm font-medium">No photos yet for this visit.</p></div>
           ) : (
             <div className="flex flex-col gap-10">
-              {photos.map((url, i) => (
-                <div key={i} onClick={() => onExpand(photos, i)} className="w-full rounded-2xl sm:rounded-3xl overflow-hidden shadow-lg border border-slate-100 group relative cursor-pointer bg-slate-50 flex items-center justify-center min-h-[300px]">
-                  <img src={url} alt={`Visit ${i+1}`} className="w-full h-auto max-h-[75vh] block object-contain" />
-                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
-                    <div className="bg-white/30 backdrop-blur-md p-4 rounded-full text-white shadow-xl"><Maximize2 size={32} strokeWidth={2.5} /></div>
+              {photos.map((photo, i) => {
+                const timestamp = formatPhotoTimestamp(photo.capturedAt || photo.uploadedAt);
+                const draft = commentDrafts[photo.url] ?? photo.comment;
+                return (
+                <div key={photo.url} className="w-full rounded-2xl sm:rounded-3xl overflow-hidden shadow-lg border border-slate-100 bg-white">
+                  <div onClick={() => onExpand(photoUrls, i)} className="group relative cursor-pointer bg-slate-50 flex items-center justify-center min-h-[300px]">
+                    <img src={photo.url} alt={photo.comment || `Visit ${i+1}`} className="w-full h-auto max-h-[75vh] block object-contain" />
+                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
+                      <div className="bg-white/30 backdrop-blur-md p-4 rounded-full text-white shadow-xl"><Maximize2 size={32} strokeWidth={2.5} /></div>
+                    </div>
+                  </div>
+                  <div className="p-4 sm:p-5 space-y-3">
+                    {timestamp && <p className="text-xs font-semibold text-slate-500">{photo.capturedAt ? 'Taken' : 'Uploaded'} {timestamp}</p>}
+                    {appPassword ? <>
+                      <textarea
+                        value={draft}
+                        maxLength={280}
+                        onChange={event => setCommentDrafts(current => ({ ...current, [photo.url]: event.target.value }))}
+                        placeholder="What did you order, or what do you want to remember?"
+                        className="w-full min-h-20 resize-y px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-[10px] font-bold text-slate-400">{draft.length}/280</span>
+                        <button
+                          disabled={savingCommentUrl === photo.url || draft.trim() === photo.comment}
+                          onClick={async () => {
+                            setSavingCommentUrl(photo.url);
+                            try { await onCommentSave(photo.url, draft); }
+                            catch (error: any) { onError(error.message || 'Comment could not be saved.'); }
+                            finally { setSavingCommentUrl(null); }
+                          }}
+                          className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold disabled:opacity-40"
+                        >
+                          {savingCommentUrl === photo.url ? 'Saving…' : 'Save comment'}
+                        </button>
+                      </div>
+                    </> : photo.comment ? <p className="text-sm text-slate-700 whitespace-pre-wrap">{photo.comment}</p> : null}
                   </div>
                 </div>
-              ))}
+              )})}
             </div>
           )}
         </div>
@@ -990,17 +1060,51 @@ const App = () => {
     });
   };
 
-  const handlePhotoUpload = async (item: Place, url: string) => {
+  const handlePhotoUpload = async (item: Place, photo: PhotoDetails) => {
     if (!isOwner || !appPassword) return;
     try {
-      const response = await fetch('/api/places', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': appPassword }, body: JSON.stringify({ id: item.id, photoUrl: url }), });
+      const response = await fetch('/api/places', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': appPassword }, body: JSON.stringify({
+        id: item.id,
+        photoUrl: photo.url,
+        capturedAt: photo.capturedAt,
+        uploadedAt: photo.uploadedAt,
+      }), });
       if (response.ok) {
-        const up = (p: string | undefined) => { const ex = p ? p.split(',') : []; return [...ex, url].join(','); };
-        if (item.type === 'hotel') setHotels(prev => prev.map(h => h.id === item.id ? { ...h, photos: up(h.photos) } : h));
-        else setPlaces(prev => prev.map(p => p.id === item.id ? { ...p, photos: up(p.photos) } : p));
-        setActivePhotoItem(prev => (prev && prev.id === item.id ? { ...prev, photos: up(prev.photos) } : prev));
+        const withPhoto = (place: Place) => ({
+          ...place,
+          photos: [...(place.photos ? place.photos.split(',').filter(Boolean) : []), photo.url].join(','),
+          photoDetails: [...photoDetailsFor(place), photo],
+        });
+        if (item.type === 'hotel') setHotels(prev => prev.map(h => h.id === item.id ? withPhoto(h) : h));
+        else setPlaces(prev => prev.map(p => p.id === item.id ? withPhoto(p) : p));
+        setActivePhotoItem(prev => (prev && prev.id === item.id ? withPhoto(prev) : prev));
+      } else {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || 'Photo linked failed.');
       }
-    } catch (err) { setToastMessage("Photo linked failed."); }
+    } catch (err: any) { throw new Error(err.message || 'Photo linked failed.'); }
+  };
+
+  const handlePhotoCommentSave = async (item: Place, photoUrl: string, comment: string) => {
+    if (!isOwner || !appPassword) return;
+    const normalizedComment = comment.trim();
+    const response = await fetch('/api/places', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': appPassword },
+      body: JSON.stringify({ id: item.id, photoUrl, photoComment: normalizedComment, action: 'updatePhoto' }),
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.error || 'Comment could not be saved.');
+    }
+    const withComment = (place: Place) => ({
+      ...place,
+      photoDetails: photoDetailsFor(place).map(photo => photo.url === photoUrl ? { ...photo, comment: normalizedComment } : photo),
+    });
+    if (item.type === 'hotel') setHotels(prev => prev.map(h => h.id === item.id ? withComment(h) : h));
+    else setPlaces(prev => prev.map(p => p.id === item.id ? withComment(p) : p));
+    setActivePhotoItem(prev => (prev && prev.id === item.id ? withComment(prev) : prev));
+    setToastMessage('Photo comment saved.');
   };
 
   const getJourneyItems = (ids: string[]) => {
@@ -1464,7 +1568,16 @@ const App = () => {
           </div>
         </div>
       )}
-      {activePhotoItem && (<PhotoModal item={activePhotoItem} isOpen={!!activePhotoItem} onClose={() => setActivePhotoItem(null)} onUpload={(url) => handlePhotoUpload(activePhotoItem, url)} appPassword={appPassword} onExpand={(urls, index) => setLightboxState({ urls, index })} onError={setToastMessage} />)}
+      {activePhotoItem && (<PhotoModal
+        item={activePhotoItem}
+        isOpen={!!activePhotoItem}
+        onClose={() => setActivePhotoItem(null)}
+        onUpload={(photo) => handlePhotoUpload(activePhotoItem, photo)}
+        onCommentSave={(url, comment) => handlePhotoCommentSave(activePhotoItem, url, comment)}
+        appPassword={appPassword}
+        onExpand={(urls, index) => setLightboxState({ urls, index })}
+        onError={setToastMessage}
+      />)}
       {isOwner && editingItem && (<EditLocationModal item={editingItem} onSave={updatePlace} onDelete={deletePlace} onClose={() => setEditingItem(null)} />)}
       {isOwner && pendingPlace && showEventDateDialog && (
         <EventDateDialog
