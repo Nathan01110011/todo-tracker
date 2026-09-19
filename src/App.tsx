@@ -641,14 +641,29 @@ const PhotoModal = ({ item, isOpen, onClose, onUpload, appPassword, onExpand, on
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[200] flex items-center justify-center p-2 sm:p-4">
-      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl h-full max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in duration-200">
+      <div className="bg-white rounded-2xl sm:rounded-3xl shadow-2xl w-full max-w-4xl h-[calc(100dvh-1rem)] sm:h-full max-h-[calc(100dvh-1rem)] sm:max-h-[90vh] min-h-0 flex flex-col overflow-hidden animate-in zoom-in duration-200">
         <div className="p-4 sm:p-6 border-b flex justify-between items-center bg-indigo-50/30 shrink-0">
           <div><h3 className="text-lg sm:text-xl font-bold text-slate-900">{item.name}</h3><p className="text-xs sm:text-sm text-slate-500 line-clamp-1">{item.address}</p></div>
           <button onClick={onClose} className="p-2 hover:bg-white rounded-full transition-colors"><X size={24} className="text-slate-400" /></button>
         </div>
         <div className="flex-1 overflow-y-auto p-4 sm:p-8 space-y-8">
           {photos.length === 0 ? (
-            <div className="h-64 border-2 border-dashed border-slate-200 rounded-3xl flex flex-col items-center justify-center gap-4 text-slate-400 bg-slate-50/50"><ImageIcon size={48} strokeWidth={1.5} /><p className="text-sm font-medium">No photos yet for this visit.</p></div>
+            appPassword ? (
+              <button
+                type="button"
+                disabled={!!uploadStatus}
+                onClick={() => fileInputRef.current?.click()}
+                className="w-full h-64 border-2 border-dashed border-slate-200 rounded-3xl flex flex-col items-center justify-center gap-4 text-slate-400 bg-slate-50/50 hover:border-indigo-300 hover:bg-indigo-50/40 hover:text-indigo-500 active:scale-[0.99] transition-all disabled:opacity-50"
+              >
+                {uploadStatus ? <Loader2 size={48} strokeWidth={1.5} className="animate-spin" /> : <Upload size={48} strokeWidth={1.5} />}
+                <div className="text-center">
+                  <p className="text-sm font-bold">{uploadStatus || 'Add photos'}</p>
+                  {!uploadStatus && <p className="text-xs font-medium mt-1">Tap here to upload the first photos for this visit.</p>}
+                </div>
+              </button>
+            ) : (
+              <div className="h-64 border-2 border-dashed border-slate-200 rounded-3xl flex flex-col items-center justify-center gap-4 text-slate-400 bg-slate-50/50"><ImageIcon size={48} strokeWidth={1.5} /><p className="text-sm font-medium">No photos yet for this visit.</p></div>
+            )
           ) : (
             <div className="flex flex-col gap-10">
               {photos.map((url, i) => (
