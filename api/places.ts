@@ -234,6 +234,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         let recovered = 0;
         let unavailable = 0;
         let failed = 0;
+        const updates: Array<{ url: string; capturedAt: string }> = [];
 
         const publicIdFromUrl = (rawUrl: string) => {
           try {
@@ -264,6 +265,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               row.set('capturedAt', String(captureTime));
               if (!row.get('uploadedAt') && resource.created_at) row.set('uploadedAt', String(resource.created_at));
               await row.save();
+              updates.push({ url: String(row.get('url') || ''), capturedAt: String(captureTime) });
               recovered += 1;
             } else {
               unavailable += 1;
@@ -274,7 +276,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           }
         }
 
-        return res.status(200).json({ success: true, checked: candidates.length, recovered, unavailable, failed });
+        return res.status(200).json({ success: true, checked: candidates.length, recovered, unavailable, failed, updates });
       }
 
       if (photoUrl && id && photosSheet) {
