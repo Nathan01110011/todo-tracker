@@ -9,7 +9,7 @@ import {
   MapPin, Search, Star, X, Plus, Save, Loader2, Bed, RotateCcw, 
   Lock, LogIn, LogOut, Eye, Info, Trophy, Camera, Upload, Image as ImageIcon,
   Maximize2, ChevronLeft, ChevronRight, Calendar, Route as RouteIcon,
-  Navigation, Trash2, CheckSquare, Pencil, Moon, Sun, BookOpen, LocateFixed
+  Navigation, Trash2, CheckSquare, Pencil, Moon, Sun, BookOpen, LocateFixed, Settings
 } from 'lucide-react';
 import { 
   format, addMonths, subMonths, startOfMonth, endOfMonth, 
@@ -844,6 +844,9 @@ const App = () => {
   const [appPassword, setAppPassword] = useState<string | null>(localStorage.getItem('todo_tracker_pw'));
   const [pwInput, setPwInput] = useState('');
   const [showSignIn, setShowSignIn] = useState(false);
+  const [showDebugPanel, setShowDebugPanel] = useState(false);
+  const [debugPhotoResults, setDebugPhotoResults] = useState<Record<string, string>>({});
+  const [debugCheckingUrl, setDebugCheckingUrl] = useState<string | null>(null);
   const [isAuthError, setIsAuthError] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [confirmationDialog, setConfirmationDialog] = useState<any>(null);
@@ -1671,6 +1674,18 @@ const App = () => {
     return 'bg-white border-slate-100 hover:border-indigo-200';
   };
 
+  const missingPhotoEntries = useMemo(() => {
+    const items = [
+      ...places.map(place => ({ ...place, type: 'place' as const })),
+      ...hotels.map(hotel => ({ ...hotel, type: 'hotel' as const, category: hotel.category || 'Hotels' })),
+    ];
+    return items.flatMap(item =>
+      photoDetailsFor(item)
+        .filter(photo => !photo.capturedAt)
+        .map(photo => ({ item, photo }))
+    );
+  }, [places, hotels]);
+
   return (
     <div className={`flex flex-col h-screen bg-slate-50 font-sans text-slate-900 ${isDarkMode ? 'theme-dark' : ''} ${isResizing ? 'cursor-col-resize select-none' : ''}`}>
       {showSignIn && !isOwner && (
@@ -1684,6 +1699,73 @@ const App = () => {
               {isAuthError && lockoutUntil && <p className="text-sm text-red-600">That password was not accepted.</p>}
               <button type="submit" disabled={!!lockoutUntil} className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 flex items-center justify-center gap-2 disabled:opacity-50"><LogIn size={20} /> Sign in</button>
             </form>
+          </div>
+        </div>
+      )}
+      {isOwner && showDebugPanel && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[410] flex items-center justify-center p-2 sm:p-4">
+          <div className="bg-white rounded-2xl sm:rounded-3xl shadow-2xl w-full max-w-3xl max-h-[calc(100dvh-1rem)] sm:max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="p-4 sm:p-5 border-b flex items-center justify-between shrink-0">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2"><Settings size={20} className="text-indigo-600" /> Settings & diagnostics</h3>
+                <p className="text-xs text-slate-500 mt-1">{missingPhotoEntries.length} photo{missingPhotoEntries.length === 1 ? '' : 's'} missing a taken date</p>
+              </div>
+              <button onClick={() => setShowDebugPanel(false)} className="p-2 text-slate-400 hover:text-slate-700"><X size={20} /></button>
+            </div>
+            <div className="p-4 sm:p-5 overflow-y-auto space-y-3">
+              {missingPhotoEntries.length === 0 ? (
+                <div className="py-12 text-center text-sm font-semibold text-slate-500">All photos have a taken date.</div>
+              ) : (
+                missingPhotoEntries.map(({ item, photo }) => (
+                  <div key={photo.url} className="flex gap-3 p-3 rounded-2xl border border-amber-200 bg-amber-50/40">
+                    <img src={photo.url} alt="" className="w-20 h-20 rounded-xl object-cover bg-slate-100 shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-bold text-slate-800 truncate">{item.name}</p>
+                      <p className="text-[11px] text-slate-500 truncate">{item.address}</p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <button
+                          disabled={debugCheckingUrl === photo.url}
+                          onClick={async () => {
+                            setDebugCheckingUrl(photo.url);
+                            try {
+                              const result = await handleSinglePhotoMetadataCheck(photo.url);
+                              setDebugPhotoResults(current => ({ ...current, [photo.url]: result }));
+                            } catch (error: any) {
+                              setDebugPhotoResults(current => ({ ...current, [photo.url]: error.message || 'Check failed.' }));
+                            } finally {
+                              setDebugCheckingUrl(null);
+                            }
+                          }}
+                          className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-[11px] font-bold disabled:opacity-50"
+                        >
+                          {debugCheckingUrl === photo.url ? 'Checking…' : 'Check EXIF'}
+                        </button>
+                        <button
+                          onClick={() => { setActivePhotoItem(item); setShowDebugPanel(false); }}
+                          className="px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-600 text-[11px] font-bold"
+                        >
+                          Open photos
+                        </button>
+                      </div>
+                      {debugPhotoResults[photo.url] && <p className="mt-2 text-[10px] text-slate-500 break-words">{debugPhotoResults[photo.url]}</p>}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+            {missingPhotoEntries.length > 0 && (
+              <div className="p-4 border-t bg-slate-50 shrink-0">
+                <button
+                  onClick={async () => {
+                    try { await handlePhotoMetadataBackfill(); }
+                    catch (error: any) { setToastMessage(error.message || 'Bulk recovery failed.'); }
+                  }}
+                  className="w-full py-2.5 rounded-xl bg-indigo-600 text-white text-xs font-bold"
+                >
+                  Retry recovery for all missing photos
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1825,6 +1907,7 @@ const App = () => {
             {isOwner ? (
               <>
                 <button onClick={() => { setFilter('Trips'); setIsJourneyMode(true); setSelectedJourneyPlaces([]); setJourneyName(''); setTripType('ordered'); setJourneySortMode('shortest'); setActiveRouteId(null); if (windowWidth < 640) setView('list'); }} className="h-8 flex items-center gap-2 bg-indigo-600 text-white px-3 rounded-xl text-xs font-bold hover:bg-indigo-700 transition-all shadow-md active:scale-95"><Navigation size={14} fill="currentColor" /><span className="hidden sm:inline">New Trip</span></button>
+                <button onClick={() => setShowDebugPanel(true)} className="h-8 flex items-center gap-1.5 px-3 rounded-xl text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200" title="Settings and diagnostics"><Settings size={14} /><span className="hidden sm:inline">Settings</span>{missingPhotoEntries.length > 0 && <span className="ml-0.5 min-w-4 h-4 px-1 rounded-full bg-amber-100 text-amber-700 text-[9px] flex items-center justify-center">{missingPhotoEntries.length}</span>}</button>
                 <button onClick={signOut} className="h-8 flex items-center gap-1.5 px-3 rounded-xl text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200" title="Sign out"><LogOut size={14} /><span className="hidden sm:inline">Sign out</span></button>
               </>
             ) : (
