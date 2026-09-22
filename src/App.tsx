@@ -626,10 +626,12 @@ const formatPhotoTimestamp = (value: string) => {
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
 };
 
-const PhotoModal = ({ item, isOpen, onClose, onUpload, onCommentSave, onBackfillPhotoDates, appPassword, onExpand, onError }: { item: Place, isOpen: boolean, onClose: () => void, onUpload: (photo: PhotoDetails) => Promise<void>, onCommentSave: (url: string, comment: string) => Promise<void>, onBackfillPhotoDates: () => Promise<void>, appPassword: string | null, onExpand: (urls: string[], index: number) => void, onError: (message: string) => void }) => {
+const PhotoModal = ({ item, isOpen, onClose, onUpload, onCommentSave, onBackfillPhotoDates, onCheckPhotoDate, appPassword, onExpand, onError }: { item: Place, isOpen: boolean, onClose: () => void, onUpload: (photo: PhotoDetails) => Promise<void>, onCommentSave: (url: string, comment: string) => Promise<void>, onBackfillPhotoDates: () => Promise<void>, onCheckPhotoDate: (url: string) => Promise<string>, appPassword: string | null, onExpand: (urls: string[], index: number) => void, onError: (message: string) => void }) => {
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const [savingCommentUrl, setSavingCommentUrl] = useState<string | null>(null);
   const [isBackfillingDates, setIsBackfillingDates] = useState(false);
+  const [checkingPhotoUrl, setCheckingPhotoUrl] = useState<string | null>(null);
+  const [photoCheckResults, setPhotoCheckResults] = useState<Record<string, string>>({});
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
   const photos = useMemo(() => photoDetailsFor(item), [item.photos, item.photoDetails]);
@@ -719,6 +721,28 @@ const PhotoModal = ({ item, isOpen, onClose, onUpload, onCommentSave, onBackfill
                   </div>
                   <div className="p-4 sm:p-5 space-y-3">
                     {timestamp && <p className="text-xs font-semibold text-slate-500">Taken {timestamp}</p>}
+                    {appPassword && !photo.capturedAt && (
+                      <div className="space-y-1">
+                        <button
+                          disabled={checkingPhotoUrl === photo.url}
+                          onClick={async () => {
+                            setCheckingPhotoUrl(photo.url);
+                            try {
+                              const result = await onCheckPhotoDate(photo.url);
+                              setPhotoCheckResults(current => ({ ...current, [photo.url]: result }));
+                            } catch (error: any) {
+                              setPhotoCheckResults(current => ({ ...current, [photo.url]: error.message || 'Check failed.' }));
+                            } finally {
+                              setCheckingPhotoUrl(null);
+                            }
+                          }}
+                          className="text-xs font-bold text-indigo-600 hover:text-indigo-800 disabled:opacity-50"
+                        >
+                          {checkingPhotoUrl === photo.url ? 'Checking EXIF…' : 'Check EXIF for this photo'}
+                        </button>
+                        {photoCheckResults[photo.url] && <p className="text-[11px] text-slate-500 break-words">{photoCheckResults[photo.url]}</p>}
+                      </div>
+                    )}
                     {appPassword ? <>
                       <textarea
                         value={draft}
@@ -1136,6 +1160,34 @@ const App = () => {
     else setPlaces(prev => prev.map(p => p.id === item.id ? withComment(p) : p));
     setActivePhotoItem(prev => (prev && prev.id === item.id ? withComment(prev) : prev));
     setToastMessage('Photo comment saved.');
+  };
+
+  const handleSinglePhotoMetadataCheck = async (photoUrl: string) => {
+    if (!isOwner || !appPassword) throw new Error('Owner sign-in required.');
+    const response = await fetch('/api/places', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': appPassword },
+      body: JSON.stringify({ action: 'checkPhotoMetadata', photoUrl }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const detail = [data.error, data.publicId ? `publicId: ${data.publicId}` : '', data.httpCode ? `HTTP ${data.httpCode}` : ''].filter(Boolean).join(' · ');
+      throw new Error(detail || 'Photo metadata check failed.');
+    }
+
+    if (data.status === 'recovered' && data.capturedAt) {
+      const applyRecoveredDate = (place: Place) => ({
+        ...place,
+        photoDetails: photoDetailsFor(place).map(photo => photo.url === photoUrl ? { ...photo, capturedAt: data.capturedAt } : photo),
+      });
+      setPlaces(prev => prev.map(applyRecoveredDate));
+      setHotels(prev => prev.map(applyRecoveredDate));
+      setActivePhotoItem(prev => prev ? applyRecoveredDate(prev) : prev);
+      return `Recovered: ${formatPhotoTimestamp(data.capturedAt)} · publicId: ${data.publicId}`;
+    }
+
+    const keys = Array.isArray(data.metadataKeys) && data.metadataKeys.length ? data.metadataKeys.join(', ') : 'none';
+    return `Cloudinary lookup succeeded, but no capture date was found. publicId: ${data.publicId} · metadata keys: ${keys}`;
   };
 
   const handlePhotoMetadataBackfill = async () => {
@@ -1633,6 +1685,7 @@ const App = () => {
         onUpload={(photo) => handlePhotoUpload(activePhotoItem, photo)}
         onCommentSave={(url, comment) => handlePhotoCommentSave(activePhotoItem, url, comment)}
         onBackfillPhotoDates={handlePhotoMetadataBackfill}
+        onCheckPhotoDate={handleSinglePhotoMetadataCheck}
         appPassword={appPassword}
         onExpand={(urls, index) => setLightboxState({ urls, index })}
         onError={setToastMessage}
