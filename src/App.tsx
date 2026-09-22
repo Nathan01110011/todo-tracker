@@ -626,13 +626,15 @@ const formatPhotoTimestamp = (value: string) => {
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
 };
 
-const PhotoModal = ({ item, isOpen, onClose, onUpload, onCommentSave, appPassword, onExpand, onError }: { item: Place, isOpen: boolean, onClose: () => void, onUpload: (photo: PhotoDetails) => Promise<void>, onCommentSave: (url: string, comment: string) => Promise<void>, appPassword: string | null, onExpand: (urls: string[], index: number) => void, onError: (message: string) => void }) => {
+const PhotoModal = ({ item, isOpen, onClose, onUpload, onCommentSave, onBackfillPhotoDates, appPassword, onExpand, onError }: { item: Place, isOpen: boolean, onClose: () => void, onUpload: (photo: PhotoDetails) => Promise<void>, onCommentSave: (url: string, comment: string) => Promise<void>, onBackfillPhotoDates: () => Promise<void>, appPassword: string | null, onExpand: (urls: string[], index: number) => void, onError: (message: string) => void }) => {
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const [savingCommentUrl, setSavingCommentUrl] = useState<string | null>(null);
+  const [isBackfillingDates, setIsBackfillingDates] = useState(false);
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
   const photos = useMemo(() => photoDetailsFor(item), [item.photos, item.photoDetails]);
   const photoUrls = useMemo(() => photos.map(photo => photo.url), [photos]);
+  const hasMissingCaptureDates = useMemo(() => photos.some(photo => !photo.capturedAt), [photos]);
   useEffect(() => {
     setCommentDrafts(Object.fromEntries(photos.map(photo => [photo.url, photo.comment])));
   }, [photos]);
@@ -748,11 +750,25 @@ const PhotoModal = ({ item, isOpen, onClose, onUpload, onCommentSave, appPasswor
           )}
         </div>
         {appPassword && (
-          <div className="p-4 sm:p-6 border-t bg-slate-50 flex gap-4 shrink-0">
+          <div className="p-4 sm:p-6 border-t bg-slate-50 flex flex-col gap-3 shrink-0">
             <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/*" multiple className="hidden" />
-            <button disabled={!!uploadStatus} onClick={() => fileInputRef.current?.click()} className="flex-1 bg-indigo-600 text-white py-3 rounded-2xl font-bold hover:bg-indigo-700 active:scale-[0.98] transition-all flex items-center justify-center gap-3 disabled:opacity-50 shadow-md">
+            <button disabled={!!uploadStatus} onClick={() => fileInputRef.current?.click()} className="w-full bg-indigo-600 text-white py-3 rounded-2xl font-bold hover:bg-indigo-700 active:scale-[0.98] transition-all flex items-center justify-center gap-3 disabled:opacity-50 shadow-md">
               {uploadStatus ? <Loader2 size={20} className="animate-spin" /> : <Upload size={20} />}{uploadStatus || 'Upload New Photos'}
             </button>
+            {hasMissingCaptureDates && (
+              <button
+                disabled={isBackfillingDates}
+                onClick={async () => {
+                  setIsBackfillingDates(true);
+                  try { await onBackfillPhotoDates(); }
+                  catch (error: any) { onError(error.message || 'Could not recover older photo dates.'); }
+                  finally { setIsBackfillingDates(false); }
+                }}
+                className="w-full py-2 text-xs font-bold text-indigo-600 hover:text-indigo-800 disabled:opacity-50"
+              >
+                {isBackfillingDates ? 'Recovering photo dates…' : 'Recover dates for older photos'}
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -1120,6 +1136,33 @@ const App = () => {
     else setPlaces(prev => prev.map(p => p.id === item.id ? withComment(p) : p));
     setActivePhotoItem(prev => (prev && prev.id === item.id ? withComment(prev) : prev));
     setToastMessage('Photo comment saved.');
+  };
+
+  const handlePhotoMetadataBackfill = async () => {
+    if (!isOwner || !appPassword) return;
+    const response = await fetch('/api/places', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': appPassword },
+      body: JSON.stringify({ action: 'backfillPhotoMetadata' }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || 'Could not recover older photo dates.');
+
+    const recovered = new Map<string, string>((data.updates || []).map((entry: { url: string; capturedAt: string }) => [entry.url, entry.capturedAt]));
+    if (recovered.size > 0) {
+      const applyRecoveredDates = (place: Place) => ({
+        ...place,
+        photoDetails: photoDetailsFor(place).map(photo => recovered.has(photo.url) ? { ...photo, capturedAt: recovered.get(photo.url) || photo.capturedAt } : photo),
+      });
+      setPlaces(prev => prev.map(applyRecoveredDates));
+      setHotels(prev => prev.map(applyRecoveredDates));
+      setActivePhotoItem(prev => prev ? applyRecoveredDates(prev) : prev);
+    }
+
+    const parts = [`Recovered ${data.recovered || 0} photo date${data.recovered === 1 ? '' : 's'}.`];
+    if (data.unavailable) parts.push(`${data.unavailable} had no recoverable EXIF date.`);
+    if (data.failed) parts.push(`${data.failed} failed to check.`);
+    setToastMessage(parts.join(' '));
   };
 
   const getJourneyItems = (ids: string[]) => {
@@ -1589,6 +1632,7 @@ const App = () => {
         onClose={() => setActivePhotoItem(null)}
         onUpload={(photo) => handlePhotoUpload(activePhotoItem, photo)}
         onCommentSave={(url, comment) => handlePhotoCommentSave(activePhotoItem, url, comment)}
+        onBackfillPhotoDates={handlePhotoMetadataBackfill}
         appPassword={appPassword}
         onExpand={(urls, index) => setLightboxState({ urls, index })}
         onError={setToastMessage}
