@@ -1,5 +1,6 @@
 import { GoogleSpreadsheet } from 'google-spreadsheet';
 import { JWT } from 'google-auth-library';
+import { v2 as cloudinary } from 'cloudinary';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -219,6 +220,63 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (req.method === 'POST') {
       const { id, status, rating, priority, notes, name, title, category, address, lat, lng, scope, return: returnFlag, details, photoUrl, photoComment, capturedAt, uploadedAt, date, eventStartDate, eventEndDate, type = 'place', placeId, placeType, placeIds, tripType, completedPlaceIds, action } = req.body;
       
+      if (action === 'backfillPhotoMetadata') {
+        if (!photosSheet) return res.status(404).json({ error: 'Photos sheet not found.' });
+        const cloudName = process.env.VITE_CLOUDINARY_CLOUD_NAME;
+        const apiKey = process.env.CLOUDINARY_API_KEY;
+        const apiSecret = process.env.CLOUDINARY_API_SECRET;
+        if (!cloudName || !apiKey || !apiSecret) return res.status(500).json({ error: 'Cloudinary configuration missing on server.' });
+
+        await ensurePhotoColumns(photosSheet);
+        cloudinary.config({ cloud_name: cloudName, api_key: apiKey, api_secret: apiSecret });
+        const rows = await photosSheet.getRows();
+        const candidates = rows.filter(row => row.get('url') && !row.get('capturedAt'));
+        let recovered = 0;
+        let unavailable = 0;
+        let failed = 0;
+
+        const publicIdFromUrl = (rawUrl: string) => {
+          try {
+            const parsed = new URL(rawUrl);
+            const marker = '/image/upload/';
+            const index = parsed.pathname.indexOf(marker);
+            if (index < 0) return '';
+            let assetPath = parsed.pathname.slice(index + marker.length);
+            assetPath = assetPath.replace(/^v\\d+\//, '');
+            assetPath = decodeURIComponent(assetPath);
+            return assetPath.replace(/\\.[^/.]+$/, '');
+          } catch {
+            return '';
+          }
+        };
+
+        for (const row of candidates) {
+          const publicId = publicIdFromUrl(String(row.get('url') || ''));
+          if (!publicId) {
+            failed += 1;
+            continue;
+          }
+          try {
+            const resource: any = await cloudinary.api.resource(publicId, { resource_type: 'image', image_metadata: true });
+            const metadata = resource.image_metadata || resource.media_metadata || {};
+            const captureTime = metadata.DateTimeOriginal || metadata.DateTimeDigitized || metadata.CreateDate || metadata.DateTime || '';
+            if (captureTime) {
+              row.set('capturedAt', String(captureTime));
+              if (!row.get('uploadedAt') && resource.created_at) row.set('uploadedAt', String(resource.created_at));
+              await row.save();
+              recovered += 1;
+            } else {
+              unavailable += 1;
+            }
+          } catch (error) {
+            console.error('Photo metadata backfill failed for', publicId, error);
+            failed += 1;
+          }
+        }
+
+        return res.status(200).json({ success: true, checked: candidates.length, recovered, unavailable, failed });
+      }
+
       if (photoUrl && id && photosSheet) {
         await ensurePhotoColumns(photosSheet);
         const normalizedComment = String(photoComment || '').trim();
