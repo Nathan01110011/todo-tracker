@@ -220,6 +220,79 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (req.method === 'POST') {
       const { id, status, rating, priority, notes, name, title, category, address, lat, lng, scope, return: returnFlag, details, photoUrl, photoComment, capturedAt, uploadedAt, date, eventStartDate, eventEndDate, type = 'place', placeId, placeType, placeIds, tripType, completedPlaceIds, action } = req.body;
       
+      if (action === 'inspectPhotoMetadata') {
+        if (!photosSheet) return res.status(404).json({ error: 'Photos sheet not found.' });
+        if (!photoUrl || !id) return res.status(400).json({ error: 'Photo URL and location ID are required.' });
+        const cloudName = process.env.VITE_CLOUDINARY_CLOUD_NAME;
+        const apiKey = process.env.CLOUDINARY_API_KEY;
+        const apiSecret = process.env.CLOUDINARY_API_SECRET;
+        if (!cloudName || !apiKey || !apiSecret) return res.status(500).json({ error: 'Cloudinary configuration missing on server.' });
+
+        const publicIdFromUrl = (rawUrl: string) => {
+          try {
+            const parsed = new URL(rawUrl);
+            const marker = '/image/upload/';
+            const index = parsed.pathname.indexOf(marker);
+            if (index < 0) return '';
+            let assetPath = parsed.pathname.slice(index + marker.length);
+            assetPath = assetPath.replace(/^v\\d+\//, '');
+            assetPath = decodeURIComponent(assetPath);
+            return assetPath.replace(/\\.[^/.]+$/, '');
+          } catch {
+            return '';
+          }
+        };
+
+        const publicId = publicIdFromUrl(String(photoUrl));
+        if (!publicId) {
+          return res.status(400).json({
+            success: false,
+            stage: 'parse-url',
+            error: 'Could not derive a Cloudinary public ID from this photo URL.',
+            photoUrl,
+          });
+        }
+
+        try {
+          cloudinary.config({ cloud_name: cloudName, api_key: apiKey, api_secret: apiSecret });
+          const resource: any = await cloudinary.api.resource(publicId, { resource_type: 'image', image_metadata: true });
+          const metadata = resource.image_metadata || resource.media_metadata || {};
+          const captureTime = metadata.DateTimeOriginal || metadata.DateTimeDigitized || metadata.CreateDate || metadata.DateTime || '';
+          const metadataKeys = Object.keys(metadata).sort();
+
+          if (captureTime) {
+            await ensurePhotoColumns(photosSheet);
+            const rows = await photosSheet.getRows();
+            const row = rows.find(candidate => candidate.get('locationId') === id && candidate.get('url') === photoUrl);
+            if (row) {
+              row.set('capturedAt', String(captureTime));
+              if (!row.get('uploadedAt') && resource.created_at) row.set('uploadedAt', String(resource.created_at));
+              await row.save();
+            }
+          }
+
+          return res.status(200).json({
+            success: true,
+            publicId,
+            captureTime: String(captureTime || ''),
+            cloudinaryCreatedAt: resource.created_at || '',
+            metadataKeys,
+            metadata,
+            saved: Boolean(captureTime),
+          });
+        } catch (error: any) {
+          console.error('Single photo metadata inspection failed for', publicId, error);
+          return res.status(502).json({
+            success: false,
+            stage: 'cloudinary-resource',
+            publicId,
+            error: error?.message || 'Cloudinary metadata lookup failed.',
+            httpCode: error?.http_code || error?.error?.http_code || null,
+            name: error?.name || null,
+          });
+        }
+      }
+
       if (action === 'backfillPhotoMetadata') {
         if (!photosSheet) return res.status(404).json({ error: 'Photos sheet not found.' });
         const cloudName = process.env.VITE_CLOUDINARY_CLOUD_NAME;
