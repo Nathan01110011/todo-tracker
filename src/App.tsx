@@ -786,11 +786,12 @@ const PhotoModal = ({ item, isOpen, onClose, onUpload, onCommentSave, onBackfill
               {uploadStatus ? <Loader2 size={20} className="animate-spin" /> : <Upload size={20} />}{uploadStatus || 'Upload New Photos'}
             </button>
             {hasMissingCaptureDates && (
-              <div className="text-center text-[11px] font-bold text-amber-700">
-                {missingCaptureDateCount} photo{missingCaptureDateCount === 1 ? '' : 's'} still missing a taken date
-              </div>
-              <button
-                disabled={isBackfillingDates}
+              <>
+                <div className="text-center text-[11px] font-bold text-amber-700">
+                  {missingCaptureDateCount} photo{missingCaptureDateCount === 1 ? '' : 's'} still missing a taken date
+                </div>
+                <button
+                  disabled={isBackfillingDates}
                 onClick={async () => {
                   setIsBackfillingDates(true);
                   try { await onBackfillPhotoDates(); }
@@ -800,7 +801,8 @@ const PhotoModal = ({ item, isOpen, onClose, onUpload, onCommentSave, onBackfill
                 className="w-full py-2 text-xs font-bold text-indigo-600 hover:text-indigo-800 disabled:opacity-50"
               >
                 {isBackfillingDates ? 'Recovering photo dates…' : 'Recover dates for older photos'}
-              </button>
+                </button>
+              </>
             )}
           </div>
         )}
