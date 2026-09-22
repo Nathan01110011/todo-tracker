@@ -236,10 +236,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             const marker = '/image/upload/';
             const index = parsed.pathname.indexOf(marker);
             if (index < 0) return '';
-            let assetPath = parsed.pathname.slice(index + marker.length);
-            assetPath = assetPath.replace(/^v\d+\//, '');
-            assetPath = decodeURIComponent(assetPath);
-            return assetPath.replace(/\.[^/.]+$/, '');
+            const segments = decodeURIComponent(parsed.pathname.slice(index + marker.length))
+              .split('/')
+              .filter(Boolean);
+            const versionIndex = segments.findIndex(segment => /^v[0-9]+$/.test(segment));
+            const assetSegments = versionIndex >= 0 ? segments.slice(versionIndex + 1) : segments;
+            if (assetSegments.length === 0) return '';
+            const last = assetSegments[assetSegments.length - 1];
+            const dot = last.lastIndexOf('.');
+            assetSegments[assetSegments.length - 1] = dot > 0 ? last.slice(0, dot) : last;
+            return assetSegments.join('/');
           } catch {
             return '';
           }
@@ -313,10 +319,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             const marker = '/image/upload/';
             const index = parsed.pathname.indexOf(marker);
             if (index < 0) return '';
-            let assetPath = parsed.pathname.slice(index + marker.length);
-            assetPath = assetPath.replace(/^v\d+\//, '');
-            assetPath = decodeURIComponent(assetPath);
-            return assetPath.replace(/\\.[^/.]+$/, '');
+            const segments = decodeURIComponent(parsed.pathname.slice(index + marker.length))
+              .split('/')
+              .filter(Boolean);
+            const versionIndex = segments.findIndex(segment => /^v[0-9]+$/.test(segment));
+            const assetSegments = versionIndex >= 0 ? segments.slice(versionIndex + 1) : segments;
+            if (assetSegments.length === 0) return '';
+            const last = assetSegments[assetSegments.length - 1];
+            const dot = last.lastIndexOf('.');
+            assetSegments[assetSegments.length - 1] = dot > 0 ? last.slice(0, dot) : last;
+            return assetSegments.join('/');
           } catch {
             return '';
           }
