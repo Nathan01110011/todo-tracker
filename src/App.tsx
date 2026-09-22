@@ -626,10 +626,12 @@ const formatPhotoTimestamp = (value: string) => {
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
 };
 
-const PhotoModal = ({ item, isOpen, onClose, onUpload, onCommentSave, onBackfillPhotoDates, appPassword, onExpand, onError }: { item: Place, isOpen: boolean, onClose: () => void, onUpload: (photo: PhotoDetails) => Promise<void>, onCommentSave: (url: string, comment: string) => Promise<void>, onBackfillPhotoDates: () => Promise<void>, appPassword: string | null, onExpand: (urls: string[], index: number) => void, onError: (message: string) => void }) => {
+const PhotoModal = ({ item, isOpen, onClose, onUpload, onCommentSave, onBackfillPhotoDates, onInspectPhotoMetadata, appPassword, onExpand, onError }: { item: Place, isOpen: boolean, onClose: () => void, onUpload: (photo: PhotoDetails) => Promise<void>, onCommentSave: (url: string, comment: string) => Promise<void>, onBackfillPhotoDates: () => Promise<void>, onInspectPhotoMetadata: (url: string) => Promise<any>, appPassword: string | null, onExpand: (urls: string[], index: number) => void, onError: (message: string) => void }) => {
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const [savingCommentUrl, setSavingCommentUrl] = useState<string | null>(null);
   const [isBackfillingDates, setIsBackfillingDates] = useState(false);
+  const [inspectingPhotoUrl, setInspectingPhotoUrl] = useState<string | null>(null);
+  const [photoDiagnostics, setPhotoDiagnostics] = useState<Record<string, string>>({});
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
   const photos = useMemo(() => photoDetailsFor(item), [item.photos, item.photoDetails]);
@@ -719,6 +721,35 @@ const PhotoModal = ({ item, isOpen, onClose, onUpload, onCommentSave, onBackfill
                   </div>
                   <div className="p-4 sm:p-5 space-y-3">
                     {timestamp && <p className="text-xs font-semibold text-slate-500">Taken {timestamp}</p>}
+                    {appPassword && !timestamp && (
+                      <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
+                        <button
+                          type="button"
+                          disabled={inspectingPhotoUrl === photo.url}
+                          onClick={async () => {
+                            setInspectingPhotoUrl(photo.url);
+                            setPhotoDiagnostics(current => ({ ...current, [photo.url]: 'Checking Cloudinary metadata…' }));
+                            try {
+                              const result = await onInspectPhotoMetadata(photo.url);
+                              const details = result.captureTime
+                                ? `Found capture date: ${formatPhotoTimestamp(result.captureTime)}`
+                                : `No capture date found. Metadata keys: ${(result.metadataKeys || []).join(', ') || 'none'}`;
+                              setPhotoDiagnostics(current => ({ ...current, [photo.url]: details }));
+                            } catch (error: any) {
+                              setPhotoDiagnostics(current => ({ ...current, [photo.url]: error.message || 'Metadata check failed.' }));
+                            } finally {
+                              setInspectingPhotoUrl(null);
+                            }
+                          }}
+                          className="text-xs font-bold text-amber-700 hover:text-amber-900 disabled:opacity-50"
+                        >
+                          {inspectingPhotoUrl === photo.url ? 'Checking EXIF…' : 'Check EXIF for this photo'}
+                        </button>
+                        {photoDiagnostics[photo.url] && (
+                          <p className="mt-1 text-[11px] leading-relaxed text-amber-800 break-words">{photoDiagnostics[photo.url]}</p>
+                        )}
+                      </div>
+                    )}
                     {appPassword ? <>
                       <textarea
                         value={draft}
@@ -1163,6 +1194,31 @@ const App = () => {
     if (data.unavailable) parts.push(`${data.unavailable} had no recoverable EXIF date.`);
     if (data.failed) parts.push(`${data.failed} failed to check.`);
     setToastMessage(parts.join(' '));
+  };
+
+  const handleSinglePhotoMetadataInspect = async (item: Place, photoUrl: string) => {
+    if (!isOwner || !appPassword) throw new Error('Owner sign-in required.');
+    const response = await fetch('/api/places', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': appPassword },
+      body: JSON.stringify({ action: 'inspectPhotoMetadata', id: item.id, photoUrl }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const extra = [data.stage, data.publicId, data.httpCode ? `HTTP ${data.httpCode}` : ''].filter(Boolean).join(' · ');
+      throw new Error(`${data.error || 'Metadata lookup failed.'}${extra ? ` (${extra})` : ''}`);
+    }
+
+    if (data.captureTime) {
+      const applyRecoveredDate = (place: Place) => ({
+        ...place,
+        photoDetails: photoDetailsFor(place).map(photo => photo.url === photoUrl ? { ...photo, capturedAt: data.captureTime } : photo),
+      });
+      if (item.type === 'hotel') setHotels(prev => prev.map(h => h.id === item.id ? applyRecoveredDate(h) : h));
+      else setPlaces(prev => prev.map(p => p.id === item.id ? applyRecoveredDate(p) : p));
+      setActivePhotoItem(prev => prev && prev.id === item.id ? applyRecoveredDate(prev) : prev);
+    }
+    return data;
   };
 
   const getJourneyItems = (ids: string[]) => {
@@ -1633,6 +1689,7 @@ const App = () => {
         onUpload={(photo) => handlePhotoUpload(activePhotoItem, photo)}
         onCommentSave={(url, comment) => handlePhotoCommentSave(activePhotoItem, url, comment)}
         onBackfillPhotoDates={handlePhotoMetadataBackfill}
+        onInspectPhotoMetadata={(url) => handleSinglePhotoMetadataInspect(activePhotoItem, url)}
         appPassword={appPassword}
         onExpand={(urls, index) => setLightboxState({ urls, index })}
         onError={setToastMessage}
