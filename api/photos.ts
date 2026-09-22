@@ -23,8 +23,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const timestamp = Math.round(new Date().getTime() / 1000);
+    const uploadOptions = { timestamp, folder: 'tracker_photos', media_metadata: true };
     const signature = cloudinary.utils.api_sign_request(
-      { timestamp, folder: 'tracker_photos' },
+      uploadOptions,
       apiSecret
     );
 
@@ -32,7 +33,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       signature,
       timestamp,
       apiKey,
-      cloudName
+      cloudName,
+      folder: uploadOptions.folder,
+      mediaMetadata: uploadOptions.media_metadata
     });
   } catch (error: any) {
     console.error('Signer Error:', error);
