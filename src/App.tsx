@@ -636,7 +636,8 @@ const PhotoModal = ({ item, isOpen, onClose, onUpload, onCommentSave, onBackfill
   const fileInputRef = useRef<HTMLInputElement>(null);
   const photos = useMemo(() => photoDetailsFor(item), [item.photos, item.photoDetails]);
   const photoUrls = useMemo(() => photos.map(photo => photo.url), [photos]);
-  const hasMissingCaptureDates = useMemo(() => photos.some(photo => !photo.capturedAt), [photos]);
+  const missingCaptureDateCount = useMemo(() => photos.filter(photo => !photo.capturedAt).length, [photos]);
+  const hasMissingCaptureDates = missingCaptureDateCount > 0;
   useEffect(() => {
     setCommentDrafts(Object.fromEntries(photos.map(photo => [photo.url, photo.comment])));
   }, [photos]);
@@ -712,8 +713,13 @@ const PhotoModal = ({ item, isOpen, onClose, onUpload, onCommentSave, onBackfill
                 const timestamp = formatPhotoTimestamp(photo.capturedAt);
                 const draft = commentDrafts[photo.url] ?? photo.comment;
                 return (
-                <div key={photo.url} className="w-full rounded-2xl sm:rounded-3xl overflow-hidden shadow-lg border border-slate-100 bg-white">
+                <div key={photo.url} className={`w-full rounded-2xl sm:rounded-3xl overflow-hidden shadow-lg border bg-white ${photo.capturedAt ? 'border-slate-100' : 'border-amber-400 ring-2 ring-amber-100'}`}>
                   <div onClick={() => onExpand(photoUrls, i)} className="group relative cursor-pointer bg-slate-50 flex items-center justify-center min-h-[300px]">
+                    {!photo.capturedAt && (
+                      <div className="absolute top-3 left-3 z-10 px-2.5 py-1 rounded-full bg-amber-100 text-amber-800 border border-amber-300 text-[11px] font-extrabold shadow-sm">
+                        Missing taken date
+                      </div>
+                    )}
                     <img src={photo.url} alt={photo.comment || `Visit ${i+1}`} className="w-full h-auto max-h-[75vh] block object-contain" />
                     <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
                       <div className="bg-white/30 backdrop-blur-md p-4 rounded-full text-white shadow-xl"><Maximize2 size={32} strokeWidth={2.5} /></div>
@@ -780,6 +786,9 @@ const PhotoModal = ({ item, isOpen, onClose, onUpload, onCommentSave, onBackfill
               {uploadStatus ? <Loader2 size={20} className="animate-spin" /> : <Upload size={20} />}{uploadStatus || 'Upload New Photos'}
             </button>
             {hasMissingCaptureDates && (
+              <div className="text-center text-[11px] font-bold text-amber-700">
+                {missingCaptureDateCount} photo{missingCaptureDateCount === 1 ? '' : 's'} still missing a taken date
+              </div>
               <button
                 disabled={isBackfillingDates}
                 onClick={async () => {
