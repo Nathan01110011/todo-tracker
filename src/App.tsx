@@ -705,7 +705,7 @@ const PhotoModal = ({ item, isOpen, onClose, onUpload, onCommentSave, appPasswor
           ) : (
             <div className="flex flex-col gap-10">
               {photos.map((photo, i) => {
-                const timestamp = formatPhotoTimestamp(photo.capturedAt || photo.uploadedAt);
+                const timestamp = formatPhotoTimestamp(photo.capturedAt);
                 const draft = commentDrafts[photo.url] ?? photo.comment;
                 return (
                 <div key={photo.url} className="w-full rounded-2xl sm:rounded-3xl overflow-hidden shadow-lg border border-slate-100 bg-white">
@@ -716,7 +716,7 @@ const PhotoModal = ({ item, isOpen, onClose, onUpload, onCommentSave, appPasswor
                     </div>
                   </div>
                   <div className="p-4 sm:p-5 space-y-3">
-                    {timestamp && <p className="text-xs font-semibold text-slate-500">{photo.capturedAt ? 'Taken' : 'Uploaded'} {timestamp}</p>}
+                    {timestamp && <p className="text-xs font-semibold text-slate-500">Taken {timestamp}</p>}
                     {appPassword ? <>
                       <textarea
                         value={draft}
