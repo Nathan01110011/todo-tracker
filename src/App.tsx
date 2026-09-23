@@ -9,7 +9,7 @@ import {
   MapPin, Search, Star, X, Plus, Save, Loader2, Bed, RotateCcw, 
   Lock, LogIn, LogOut, Eye, Info, Trophy, Camera, Upload, Image as ImageIcon,
   Maximize2, ChevronLeft, ChevronRight, Calendar, Route as RouteIcon,
-  Navigation, Trash2, CheckSquare, Pencil, Moon, Sun, BookOpen, LocateFixed
+  Navigation, Trash2, CheckSquare, Pencil, Moon, Sun, BookOpen, LocateFixed, Settings
 } from 'lucide-react';
 import { 
   format, addMonths, subMonths, startOfMonth, endOfMonth, 
@@ -626,15 +626,18 @@ const formatPhotoTimestamp = (value: string) => {
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
 };
 
-const PhotoModal = ({ item, isOpen, onClose, onUpload, onCommentSave, onBackfillPhotoDates, appPassword, onExpand, onError }: { item: Place, isOpen: boolean, onClose: () => void, onUpload: (photo: PhotoDetails) => Promise<void>, onCommentSave: (url: string, comment: string) => Promise<void>, onBackfillPhotoDates: () => Promise<void>, appPassword: string | null, onExpand: (urls: string[], index: number) => void, onError: (message: string) => void }) => {
+const PhotoModal = ({ item, isOpen, onClose, onUpload, onCommentSave, onBackfillPhotoDates, onCheckPhotoDate, appPassword, onExpand, onError }: { item: Place, isOpen: boolean, onClose: () => void, onUpload: (photo: PhotoDetails) => Promise<void>, onCommentSave: (url: string, comment: string) => Promise<void>, onBackfillPhotoDates: () => Promise<void>, onCheckPhotoDate: (url: string) => Promise<string>, appPassword: string | null, onExpand: (urls: string[], index: number) => void, onError: (message: string) => void }) => {
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const [savingCommentUrl, setSavingCommentUrl] = useState<string | null>(null);
   const [isBackfillingDates, setIsBackfillingDates] = useState(false);
+  const [checkingPhotoUrl, setCheckingPhotoUrl] = useState<string | null>(null);
+  const [photoCheckResults, setPhotoCheckResults] = useState<Record<string, string>>({});
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
   const photos = useMemo(() => photoDetailsFor(item), [item.photos, item.photoDetails]);
   const photoUrls = useMemo(() => photos.map(photo => photo.url), [photos]);
-  const hasMissingCaptureDates = useMemo(() => photos.some(photo => !photo.capturedAt), [photos]);
+  const missingCaptureDateCount = useMemo(() => photos.filter(photo => !photo.capturedAt).length, [photos]);
+  const hasMissingCaptureDates = missingCaptureDateCount > 0;
   useEffect(() => {
     setCommentDrafts(Object.fromEntries(photos.map(photo => [photo.url, photo.comment])));
   }, [photos]);
@@ -710,8 +713,13 @@ const PhotoModal = ({ item, isOpen, onClose, onUpload, onCommentSave, onBackfill
                 const timestamp = formatPhotoTimestamp(photo.capturedAt);
                 const draft = commentDrafts[photo.url] ?? photo.comment;
                 return (
-                <div key={photo.url} className="w-full rounded-2xl sm:rounded-3xl overflow-hidden shadow-lg border border-slate-100 bg-white">
+                <div key={photo.url} className={`w-full rounded-2xl sm:rounded-3xl overflow-hidden shadow-lg border bg-white ${photo.capturedAt ? 'border-slate-100' : 'border-amber-400 ring-2 ring-amber-100'}`}>
                   <div onClick={() => onExpand(photoUrls, i)} className="group relative cursor-pointer bg-slate-50 flex items-center justify-center min-h-[300px]">
+                    {!photo.capturedAt && (
+                      <div className="absolute top-3 left-3 z-10 px-2.5 py-1 rounded-full bg-amber-100 text-amber-800 border border-amber-300 text-[11px] font-extrabold shadow-sm">
+                        Missing taken date
+                      </div>
+                    )}
                     <img src={photo.url} alt={photo.comment || `Visit ${i+1}`} className="w-full h-auto max-h-[75vh] block object-contain" />
                     <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
                       <div className="bg-white/30 backdrop-blur-md p-4 rounded-full text-white shadow-xl"><Maximize2 size={32} strokeWidth={2.5} /></div>
@@ -719,6 +727,28 @@ const PhotoModal = ({ item, isOpen, onClose, onUpload, onCommentSave, onBackfill
                   </div>
                   <div className="p-4 sm:p-5 space-y-3">
                     {timestamp && <p className="text-xs font-semibold text-slate-500">Taken {timestamp}</p>}
+                    {appPassword && !photo.capturedAt && (
+                      <div className="space-y-1">
+                        <button
+                          disabled={checkingPhotoUrl === photo.url}
+                          onClick={async () => {
+                            setCheckingPhotoUrl(photo.url);
+                            try {
+                              const result = await onCheckPhotoDate(photo.url);
+                              setPhotoCheckResults(current => ({ ...current, [photo.url]: result }));
+                            } catch (error: any) {
+                              setPhotoCheckResults(current => ({ ...current, [photo.url]: error.message || 'Check failed.' }));
+                            } finally {
+                              setCheckingPhotoUrl(null);
+                            }
+                          }}
+                          className="text-xs font-bold text-indigo-600 hover:text-indigo-800 disabled:opacity-50"
+                        >
+                          {checkingPhotoUrl === photo.url ? 'Checking EXIF…' : 'Check EXIF for this photo'}
+                        </button>
+                        {photoCheckResults[photo.url] && <p className="text-[11px] text-slate-500 break-words">{photoCheckResults[photo.url]}</p>}
+                      </div>
+                    )}
                     {appPassword ? <>
                       <textarea
                         value={draft}
@@ -756,8 +786,12 @@ const PhotoModal = ({ item, isOpen, onClose, onUpload, onCommentSave, onBackfill
               {uploadStatus ? <Loader2 size={20} className="animate-spin" /> : <Upload size={20} />}{uploadStatus || 'Upload New Photos'}
             </button>
             {hasMissingCaptureDates && (
-              <button
-                disabled={isBackfillingDates}
+              <>
+                <div className="text-center text-[11px] font-bold text-amber-700">
+                  {missingCaptureDateCount} photo{missingCaptureDateCount === 1 ? '' : 's'} still missing a taken date
+                </div>
+                <button
+                  disabled={isBackfillingDates}
                 onClick={async () => {
                   setIsBackfillingDates(true);
                   try { await onBackfillPhotoDates(); }
@@ -767,7 +801,8 @@ const PhotoModal = ({ item, isOpen, onClose, onUpload, onCommentSave, onBackfill
                 className="w-full py-2 text-xs font-bold text-indigo-600 hover:text-indigo-800 disabled:opacity-50"
               >
                 {isBackfillingDates ? 'Recovering photo dates…' : 'Recover dates for older photos'}
-              </button>
+                </button>
+              </>
             )}
           </div>
         )}
@@ -811,6 +846,9 @@ const App = () => {
   const [appPassword, setAppPassword] = useState<string | null>(localStorage.getItem('todo_tracker_pw'));
   const [pwInput, setPwInput] = useState('');
   const [showSignIn, setShowSignIn] = useState(false);
+  const [showDebugPanel, setShowDebugPanel] = useState(false);
+  const [debugPhotoResults, setDebugPhotoResults] = useState<Record<string, string>>({});
+  const [debugCheckingUrl, setDebugCheckingUrl] = useState<string | null>(null);
   const [isAuthError, setIsAuthError] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [confirmationDialog, setConfirmationDialog] = useState<any>(null);
@@ -1136,6 +1174,34 @@ const App = () => {
     else setPlaces(prev => prev.map(p => p.id === item.id ? withComment(p) : p));
     setActivePhotoItem(prev => (prev && prev.id === item.id ? withComment(prev) : prev));
     setToastMessage('Photo comment saved.');
+  };
+
+  const handleSinglePhotoMetadataCheck = async (photoUrl: string) => {
+    if (!isOwner || !appPassword) throw new Error('Owner sign-in required.');
+    const response = await fetch('/api/places', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': appPassword },
+      body: JSON.stringify({ action: 'checkPhotoMetadata', photoUrl }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const detail = [data.error, data.publicId ? `publicId: ${data.publicId}` : '', data.httpCode ? `HTTP ${data.httpCode}` : ''].filter(Boolean).join(' · ');
+      throw new Error(detail || 'Photo metadata check failed.');
+    }
+
+    if (data.status === 'recovered' && data.capturedAt) {
+      const applyRecoveredDate = (place: Place) => ({
+        ...place,
+        photoDetails: photoDetailsFor(place).map(photo => photo.url === photoUrl ? { ...photo, capturedAt: data.capturedAt } : photo),
+      });
+      setPlaces(prev => prev.map(applyRecoveredDate));
+      setHotels(prev => prev.map(applyRecoveredDate));
+      setActivePhotoItem(prev => prev ? applyRecoveredDate(prev) : prev);
+      return `Recovered: ${formatPhotoTimestamp(data.capturedAt)} · publicId: ${data.publicId}`;
+    }
+
+    const keys = Array.isArray(data.metadataKeys) && data.metadataKeys.length ? data.metadataKeys.join(', ') : 'none';
+    return `Cloudinary lookup succeeded, but no capture date was found. publicId: ${data.publicId} · metadata keys: ${keys}`;
   };
 
   const handlePhotoMetadataBackfill = async () => {
@@ -1610,6 +1676,18 @@ const App = () => {
     return 'bg-white border-slate-100 hover:border-indigo-200';
   };
 
+  const missingPhotoEntries = useMemo(() => {
+    const items = [
+      ...places.map(place => ({ ...place, type: 'place' as const })),
+      ...hotels.map(hotel => ({ ...hotel, type: 'hotel' as const, category: hotel.category || 'Hotels' })),
+    ];
+    return items.flatMap(item =>
+      photoDetailsFor(item)
+        .filter(photo => !photo.capturedAt)
+        .map(photo => ({ item, photo }))
+    );
+  }, [places, hotels]);
+
   return (
     <div className={`flex flex-col h-screen bg-slate-50 font-sans text-slate-900 ${isDarkMode ? 'theme-dark' : ''} ${isResizing ? 'cursor-col-resize select-none' : ''}`}>
       {showSignIn && !isOwner && (
@@ -1626,6 +1704,73 @@ const App = () => {
           </div>
         </div>
       )}
+      {isOwner && showDebugPanel && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[410] flex items-center justify-center p-2 sm:p-4">
+          <div className="bg-white rounded-2xl sm:rounded-3xl shadow-2xl w-full max-w-3xl max-h-[calc(100dvh-1rem)] sm:max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="p-4 sm:p-5 border-b flex items-center justify-between shrink-0">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2"><Settings size={20} className="text-indigo-600" /> Settings & diagnostics</h3>
+                <p className="text-xs text-slate-500 mt-1">{missingPhotoEntries.length} photo{missingPhotoEntries.length === 1 ? '' : 's'} missing a taken date</p>
+              </div>
+              <button onClick={() => setShowDebugPanel(false)} className="p-2 text-slate-400 hover:text-slate-700"><X size={20} /></button>
+            </div>
+            <div className="p-4 sm:p-5 overflow-y-auto space-y-3">
+              {missingPhotoEntries.length === 0 ? (
+                <div className="py-12 text-center text-sm font-semibold text-slate-500">All photos have a taken date.</div>
+              ) : (
+                missingPhotoEntries.map(({ item, photo }) => (
+                  <div key={photo.url} className="flex gap-3 p-3 rounded-2xl border border-amber-200 bg-amber-50/40">
+                    <img src={photo.url} alt="" className="w-20 h-20 rounded-xl object-cover bg-slate-100 shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-bold text-slate-800 truncate">{item.name}</p>
+                      <p className="text-[11px] text-slate-500 truncate">{item.address}</p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <button
+                          disabled={debugCheckingUrl === photo.url}
+                          onClick={async () => {
+                            setDebugCheckingUrl(photo.url);
+                            try {
+                              const result = await handleSinglePhotoMetadataCheck(photo.url);
+                              setDebugPhotoResults(current => ({ ...current, [photo.url]: result }));
+                            } catch (error: any) {
+                              setDebugPhotoResults(current => ({ ...current, [photo.url]: error.message || 'Check failed.' }));
+                            } finally {
+                              setDebugCheckingUrl(null);
+                            }
+                          }}
+                          className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-[11px] font-bold disabled:opacity-50"
+                        >
+                          {debugCheckingUrl === photo.url ? 'Checking…' : 'Check EXIF'}
+                        </button>
+                        <button
+                          onClick={() => { setActivePhotoItem(item); setShowDebugPanel(false); }}
+                          className="px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-600 text-[11px] font-bold"
+                        >
+                          Open photos
+                        </button>
+                      </div>
+                      {debugPhotoResults[photo.url] && <p className="mt-2 text-[10px] text-slate-500 break-words">{debugPhotoResults[photo.url]}</p>}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+            {missingPhotoEntries.length > 0 && (
+              <div className="p-4 border-t bg-slate-50 shrink-0">
+                <button
+                  onClick={async () => {
+                    try { await handlePhotoMetadataBackfill(); }
+                    catch (error: any) { setToastMessage(error.message || 'Bulk recovery failed.'); }
+                  }}
+                  className="w-full py-2.5 rounded-xl bg-indigo-600 text-white text-xs font-bold"
+                >
+                  Retry recovery for all missing photos
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
       {activePhotoItem && (<PhotoModal
         item={activePhotoItem}
         isOpen={!!activePhotoItem}
@@ -1633,6 +1778,7 @@ const App = () => {
         onUpload={(photo) => handlePhotoUpload(activePhotoItem, photo)}
         onCommentSave={(url, comment) => handlePhotoCommentSave(activePhotoItem, url, comment)}
         onBackfillPhotoDates={handlePhotoMetadataBackfill}
+        onCheckPhotoDate={handleSinglePhotoMetadataCheck}
         appPassword={appPassword}
         onExpand={(urls, index) => setLightboxState({ urls, index })}
         onError={setToastMessage}
@@ -1763,6 +1909,7 @@ const App = () => {
             {isOwner ? (
               <>
                 <button onClick={() => { setFilter('Trips'); setIsJourneyMode(true); setSelectedJourneyPlaces([]); setJourneyName(''); setTripType('ordered'); setJourneySortMode('shortest'); setActiveRouteId(null); if (windowWidth < 640) setView('list'); }} className="h-8 flex items-center gap-2 bg-indigo-600 text-white px-3 rounded-xl text-xs font-bold hover:bg-indigo-700 transition-all shadow-md active:scale-95"><Navigation size={14} fill="currentColor" /><span className="hidden sm:inline">New Trip</span></button>
+                <button onClick={() => setShowDebugPanel(true)} className="h-8 flex items-center gap-1.5 px-3 rounded-xl text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200" title="Settings and diagnostics"><Settings size={14} /><span className="hidden sm:inline">Settings</span>{missingPhotoEntries.length > 0 && <span className="ml-0.5 min-w-4 h-4 px-1 rounded-full bg-amber-100 text-amber-700 text-[9px] flex items-center justify-center">{missingPhotoEntries.length}</span>}</button>
                 <button onClick={signOut} className="h-8 flex items-center gap-1.5 px-3 rounded-xl text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200" title="Sign out"><LogOut size={14} /><span className="hidden sm:inline">Sign out</span></button>
               </>
             ) : (
