@@ -841,6 +841,9 @@ const App = () => {
   const [filter, setFilter] = useState('TODO');
   const [activeScope, setActiveScope] = useState<ScopeName>('Austin');
   const [visitedFilter, setVisitedFilter] = useState('All');
+  const [nearbyLocation, setNearbyLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [nearbyIncludeVisited, setNearbyIncludeVisited] = useState(false);
+  const [isNearbyLocating, setIsNearbyLocating] = useState(false);
   const [view, setView] = useState('split');
   const [sidebarWidth, setSidebarWidth] = useState(33.33);
   const [isResizing, setIsResizing] = useState(false);
@@ -1043,6 +1046,24 @@ const App = () => {
     } finally {
       setIsDiarySearching(false);
     }
+  };
+
+  const locateNearby = () => {
+    if (!navigator.geolocation) {
+      setToastMessage('Geolocation is not supported by this browser.');
+      return;
+    }
+    setIsNearbyLocating(true);
+    navigator.geolocation.getCurrentPosition(position => {
+      const { latitude, longitude } = position.coords;
+      const nextLocation = { lat: latitude, lng: longitude };
+      setNearbyLocation(nextLocation);
+      setMapTarget({ center: [latitude, longitude], zoom: 13 });
+      setIsNearbyLocating(false);
+    }, () => {
+      setIsNearbyLocating(false);
+      setToastMessage('Location permission was denied or unavailable.');
+    }, { enableHighAccuracy: true, timeout: 10000 });
   };
 
   const useCurrentDiaryLocation = () => {
@@ -1484,7 +1505,7 @@ const App = () => {
     });
   };
 
-  const categories = ['TODO', 'Trips', 'Diary', 'Events', 'Food', 'Drinks', 'Activities', 'Shopping', 'Sport', 'Hotels', 'Saved', 'Visited', 'All'];
+  const categories = ['TODO', 'Nearby', 'Trips', 'Diary', 'Events', 'Food', 'Drinks', 'Activities', 'Shopping', 'Sport', 'Hotels', 'Saved', 'Visited', 'All'];
   const diaryGroups = useMemo(() => {
     const scopedEntries = diaryEntries
       .filter(entry => entry.scope === activeScope)
@@ -1546,6 +1567,12 @@ const App = () => {
       if (journeyFilter === 'Visited') return scopePlaces.filter(p => p.status === 'Visited');
       return scopePlaces;
     }
+    if (filter === 'Nearby') {
+      if (!nearbyLocation) return [];
+      return scopePlaces
+        .filter(p => p.lat && p.lng && (nearbyIncludeVisited || p.status !== 'Visited'))
+        .sort((a, b) => getDistance(nearbyLocation, a) - getDistance(nearbyLocation, b));
+    }
     if (filter === 'Visited') {
       let res = scopePlaces.filter(p => p.status === 'Visited');
       if (visitedFilter !== 'All') res = res.filter(p => p.category === visitedFilter);
@@ -1553,6 +1580,12 @@ const App = () => {
     }
     if (filter === 'TODO') return scopePlaces.filter(p => p.status === 'To Do');
     if (filter === 'All') return scopePlaces;
+    if (filter === 'Nearby') {
+      if (!nearbyLocation) return [];
+      return scopeHotels
+        .filter(h => h.lat && h.lng && (nearbyIncludeVisited || h.status !== 'Visited'))
+        .sort((a, b) => getDistance(nearbyLocation, a) - getDistance(nearbyLocation, b));
+    }
     if (filter === 'Trips') {
       if (!activeRouteId) return [];
       const route = routes.find(r => r.id === activeRouteId);
@@ -1563,7 +1596,7 @@ const App = () => {
     }
     if (filter === 'Hotels' || filter === 'Saved') return [];
     return scopePlaces.filter(p => p.category === filter && p.status === 'To Do');
-  }, [places, filter, activeScope, visitedFilter, isJourneyMode, journeyFilter, routes, activeRouteId]);
+  }, [places, filter, activeScope, visitedFilter, isJourneyMode, journeyFilter, routes, activeRouteId, nearbyLocation, nearbyIncludeVisited]);
 
   const filteredHotels = useMemo(() => {
     const scopeHotels = hotels.filter(h => h.scope === activeScope);
@@ -1587,7 +1620,7 @@ const App = () => {
     if (filter === 'TODO') return scopeHotels.filter(h => h.status === 'To Do');
     if (filter === 'All') return scopeHotels;
     return [];
-  }, [hotels, filter, activeScope, visitedFilter, isJourneyMode, journeyFilter, routes, activeRouteId]);
+  }, [hotels, filter, activeScope, visitedFilter, isJourneyMode, journeyFilter, routes, activeRouteId, nearbyLocation, nearbyIncludeVisited]);
 
   const displayItems = useMemo(() => {
     const items = [
@@ -1596,8 +1629,11 @@ const App = () => {
     ];
 
     if (filter === 'Visited') return items;
+    if (filter === 'Nearby' && nearbyLocation) {
+      return items.sort((a, b) => getDistance(nearbyLocation, a) - getDistance(nearbyLocation, b));
+    }
     return items.sort((a, b) => (parseInt(b.priority) || 0) - (parseInt(a.priority) || 0));
-  }, [filteredHotels, filteredPlaces, filter]);
+  }, [filteredHotels, filteredPlaces, filter, nearbyLocation]);
 
   const visitedGroups = useMemo(() => {
     if (filter !== 'Visited') return {};
@@ -1968,7 +2004,7 @@ const App = () => {
           ))}
         </div>
         <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
-          <Filter size={16} className="text-slate-400 shrink-0" />{categories.map(cat => (<button key={cat} onClick={() => setFilter(cat)} className={`px-3 py-1.5 rounded-full text-xs sm:text-sm font-medium whitespace-nowrap transition-all ${filter === cat ? 'bg-indigo-600 text-white ring-2 ring-indigo-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>{cat}</button>))}
+          <Filter size={16} className="text-slate-400 shrink-0" />{categories.map(cat => (<button key={cat} onClick={() => { setFilter(cat); if (cat === 'Nearby' && !nearbyLocation) locateNearby(); }} className={`px-3 py-1.5 rounded-full text-xs sm:text-sm font-medium whitespace-nowrap transition-all ${filter === cat ? 'bg-indigo-600 text-white ring-2 ring-indigo-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>{cat}</button>))}
         </div>
       </header>
       <main className="flex-1 flex overflow-hidden relative pb-[60px] sm:pb-0">
@@ -2291,8 +2327,30 @@ const App = () => {
             <section className="space-y-6">
               <div className="space-y-4">
                 <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest px-1">
-                  {filter === 'Hotels' ? 'Hotels' : filter === 'Visited' ? 'Visited' : filter === 'All' ? 'All Locations' : filter === 'TODO' ? 'To Do' : filter}
+                  {filter === 'Hotels' ? 'Hotels' : filter === 'Visited' ? 'Visited' : filter === 'Nearby' ? 'Nearby' : filter === 'All' ? 'All Locations' : filter === 'TODO' ? 'To Do' : filter}
                 </h2>
+                {filter === 'Nearby' && (
+                  <div className="p-3 bg-white border border-indigo-100 rounded-xl shadow-sm space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="w-8 h-8 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
+                          {isNearbyLocating ? <Loader2 size={16} className="animate-spin" /> : <LocateFixed size={16} />}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-xs font-bold text-slate-700">{nearbyLocation ? 'Closest saved places first' : isNearbyLocating ? 'Finding your location…' : 'Location needed'}</p>
+                          <p className="text-[10px] text-slate-400">{nearbyLocation ? 'Distances update when you refresh your location.' : 'Allow location access to sort your saved places by distance.'}</p>
+                        </div>
+                      </div>
+                      <button type="button" onClick={locateNearby} disabled={isNearbyLocating} className="px-2.5 py-1.5 rounded-lg bg-indigo-50 text-indigo-600 text-[10px] font-black uppercase tracking-wider hover:bg-indigo-100 disabled:opacity-50">
+                        {nearbyLocation ? 'Refresh' : 'Locate'}
+                      </button>
+                    </div>
+                    <label className="flex items-center justify-between gap-3 cursor-pointer">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Show visited places</span>
+                      <input type="checkbox" checked={nearbyIncludeVisited} onChange={event => setNearbyIncludeVisited(event.target.checked)} className="accent-indigo-600 w-4 h-4" />
+                    </label>
+                  </div>
+                )}
                 {filter === 'Visited' && (<div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1.5 px-1">{['All', 'Events', 'Food', 'Drinks', 'Activities', 'Shopping', 'Sport', 'Hotels', 'Other'].map(cat => (<button key={cat} onClick={() => setVisitedFilter(cat)} className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase transition-all whitespace-nowrap ${visitedFilter === cat ? 'bg-indigo-100 text-indigo-600 ring-2 ring-indigo-200' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}>{cat}</button>))}</div>)}
               </div>
               <div className="space-y-4 sm:space-y-2">
@@ -2395,6 +2453,12 @@ const App = () => {
                         <div className="min-w-0 pr-2">
                           <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{item.category}</span>
+                            {filter === 'Nearby' && nearbyLocation && (
+                              <span className="text-[9px] font-black text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded-full">{(getDistance(nearbyLocation, item) * 0.621371).toFixed(getDistance(nearbyLocation, item) * 0.621371 < 10 ? 1 : 0)} mi</span>
+                            )}
+                            {filter === 'Nearby' && item.status === 'Visited' && (
+                              <span className="text-[8px] font-black uppercase tracking-widest bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">Visited</span>
+                            )}
                             {isJourneyMode && selectedJourneyPlaces.includes(`${item.type}:${item.id}`) && (
                               <span className="bg-indigo-600 text-white text-[8px] font-black px-1.5 py-0.5 rounded-full uppercase tracking-widest">Selected</span>
                             )}
