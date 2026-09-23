@@ -366,6 +366,50 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         await ensurePhotoColumns(photosSheet);
         const normalizedComment = String(photoComment || '').trim();
         if (normalizedComment.length > 280) return res.status(400).json({ error: 'Photo comments must be 280 characters or fewer.' });
+        if (action === 'deletePhoto') {
+          const photoRows = await photosSheet.getRows();
+          const photoRow = photoRows.find(row => row.get('locationId') === id && row.get('url') === photoUrl);
+          if (!photoRow) return res.status(404).json({ error: 'Photo not found.' });
+
+          const publicIdFromUrl = (rawUrl: string) => {
+            try {
+              const parsed = new URL(rawUrl);
+              const marker = '/image/upload/';
+              const index = parsed.pathname.indexOf(marker);
+              if (index < 0) return '';
+              const segments = decodeURIComponent(parsed.pathname.slice(index + marker.length))
+                .split('/')
+                .filter(Boolean);
+              const versionIndex = segments.findIndex(segment => /^v[0-9]+$/.test(segment));
+              const assetSegments = versionIndex >= 0 ? segments.slice(versionIndex + 1) : segments;
+              if (assetSegments.length === 0) return '';
+              const last = assetSegments[assetSegments.length - 1];
+              const dot = last.lastIndexOf('.');
+              assetSegments[assetSegments.length - 1] = dot > 0 ? last.slice(0, dot) : last;
+              return assetSegments.join('/');
+            } catch {
+              return '';
+            }
+          };
+
+          const cloudName = process.env.VITE_CLOUDINARY_CLOUD_NAME;
+          const apiKey = process.env.CLOUDINARY_API_KEY;
+          const apiSecret = process.env.CLOUDINARY_API_SECRET;
+          const publicId = publicIdFromUrl(String(photoUrl));
+
+          if (cloudName && apiKey && apiSecret && publicId) {
+            cloudinary.config({ cloud_name: cloudName, api_key: apiKey, api_secret: apiSecret });
+            try {
+              await cloudinary.uploader.destroy(publicId, { resource_type: 'image', invalidate: true });
+            } catch (error) {
+              console.error('Cloudinary photo deletion failed for', publicId, error);
+              return res.status(502).json({ error: 'Could not delete photo from Cloudinary. Nothing was removed.' });
+            }
+          }
+
+          await photoRow.delete();
+          return res.status(200).json({ success: true });
+        }
         if (action === 'updatePhoto') {
           const photoRows = await photosSheet.getRows();
           const photoRow = photoRows.find(row => row.get('locationId') === id && row.get('url') === photoUrl);
