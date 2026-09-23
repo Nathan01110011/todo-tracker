@@ -626,7 +626,7 @@ const formatPhotoTimestamp = (value: string) => {
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
 };
 
-const PhotoModal = ({ item, isOpen, onClose, onUpload, onCommentSave, onBackfillPhotoDates, onCheckPhotoDate, appPassword, onExpand, onError }: { item: Place, isOpen: boolean, onClose: () => void, onUpload: (photo: PhotoDetails) => Promise<void>, onCommentSave: (url: string, comment: string) => Promise<void>, onBackfillPhotoDates: () => Promise<void>, onCheckPhotoDate: (url: string) => Promise<string>, appPassword: string | null, onExpand: (urls: string[], index: number) => void, onError: (message: string) => void }) => {
+const PhotoModal = ({ item, isOpen, onClose, onUpload, onCommentSave, onDeletePhoto, onBackfillPhotoDates, onCheckPhotoDate, appPassword, onExpand, onError }: { item: Place, isOpen: boolean, onClose: () => void, onUpload: (photo: PhotoDetails) => Promise<void>, onCommentSave: (url: string, comment: string) => Promise<void>, onDeletePhoto: (url: string) => void, onBackfillPhotoDates: () => Promise<void>, onCheckPhotoDate: (url: string) => Promise<string>, appPassword: string | null, onExpand: (urls: string[], index: number) => void, onError: (message: string) => void }) => {
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const [savingCommentUrl, setSavingCommentUrl] = useState<string | null>(null);
   const [isBackfillingDates, setIsBackfillingDates] = useState(false);
@@ -759,18 +759,26 @@ const PhotoModal = ({ item, isOpen, onClose, onUpload, onCommentSave, onBackfill
                       />
                       <div className="flex items-center justify-between gap-3">
                         <span className="text-[10px] font-bold text-slate-400">{draft.length}/280</span>
-                        <button
-                          disabled={savingCommentUrl === photo.url || draft.trim() === photo.comment}
-                          onClick={async () => {
-                            setSavingCommentUrl(photo.url);
-                            try { await onCommentSave(photo.url, draft); }
-                            catch (error: any) { onError(error.message || 'Comment could not be saved.'); }
-                            finally { setSavingCommentUrl(null); }
-                          }}
-                          className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold disabled:opacity-40"
-                        >
-                          {savingCommentUrl === photo.url ? 'Saving…' : 'Save comment'}
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => onDeletePhoto(photo.url)}
+                            className="px-3 py-2 rounded-xl bg-red-50 text-red-600 text-xs font-bold hover:bg-red-100 flex items-center gap-1.5"
+                          >
+                            <Trash2 size={14} /> Delete
+                          </button>
+                          <button
+                            disabled={savingCommentUrl === photo.url || draft.trim() === photo.comment}
+                            onClick={async () => {
+                              setSavingCommentUrl(photo.url);
+                              try { await onCommentSave(photo.url, draft); }
+                              catch (error: any) { onError(error.message || 'Comment could not be saved.'); }
+                              finally { setSavingCommentUrl(null); }
+                            }}
+                            className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold disabled:opacity-40"
+                          >
+                            {savingCommentUrl === photo.url ? 'Saving…' : 'Save comment'}
+                          </button>
+                        </div>
                       </div>
                     </> : photo.comment ? <p className="text-sm text-slate-700 whitespace-pre-wrap">{photo.comment}</p> : null}
                   </div>
@@ -1152,6 +1160,36 @@ const App = () => {
         throw new Error(data.error || 'Photo linked failed.');
       }
     } catch (err: any) { throw new Error(err.message || 'Photo linked failed.'); }
+  };
+
+  const handlePhotoDelete = (item: Place, photoUrl: string) => {
+    if (!isOwner || !appPassword) return;
+    setConfirmationDialog({
+      message: 'Delete this photo? This will remove it from the tracker and Cloudinary.',
+      onConfirm: async () => {
+        const response = await fetch('/api/places', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': appPassword },
+          body: JSON.stringify({ id: item.id, photoUrl, action: 'deletePhoto' }),
+        });
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}));
+          setToastMessage(data.error || 'Photo could not be deleted.');
+          return;
+        }
+
+        const withoutPhoto = (place: Place) => ({
+          ...place,
+          photos: (place.photos ? place.photos.split(',').filter(url => url && url !== photoUrl) : []).join(','),
+          photoDetails: photoDetailsFor(place).filter(photo => photo.url !== photoUrl),
+        });
+        if (item.type === 'hotel') setHotels(prev => prev.map(h => h.id === item.id ? withoutPhoto(h) : h));
+        else setPlaces(prev => prev.map(p => p.id === item.id ? withoutPhoto(p) : p));
+        setActivePhotoItem(prev => (prev && prev.id === item.id ? withoutPhoto(prev) : prev));
+        setToastMessage('Photo deleted.');
+      },
+      onCancel: () => {}
+    });
   };
 
   const handlePhotoCommentSave = async (item: Place, photoUrl: string, comment: string) => {
@@ -1777,6 +1815,7 @@ const App = () => {
         onClose={() => setActivePhotoItem(null)}
         onUpload={(photo) => handlePhotoUpload(activePhotoItem, photo)}
         onCommentSave={(url, comment) => handlePhotoCommentSave(activePhotoItem, url, comment)}
+        onDeletePhoto={(url) => handlePhotoDelete(activePhotoItem, url)}
         onBackfillPhotoDates={handlePhotoMetadataBackfill}
         onCheckPhotoDate={handleSinglePhotoMetadataCheck}
         appPassword={appPassword}
