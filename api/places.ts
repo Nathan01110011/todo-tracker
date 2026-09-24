@@ -219,6 +219,90 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (req.method === 'POST') {
       const { id, status, rating, priority, notes, name, title, category, address, lat, lng, scope, return: returnFlag, details, photoUrl, photoComment, capturedAt, uploadedAt, date, eventStartDate, eventEndDate, type = 'place', placeId, placeType, placeIds, tripType, completedPlaceIds, action } = req.body;
+
+      if (action === 'syncDiaryFromPhotos') {
+        if (!diarySheet) return res.status(404).json({ error: 'Diary sheet not found' });
+        const entries = Array.isArray(req.body.entries) ? req.body.entries : [];
+        if (entries.length === 0) return res.status(400).json({ error: 'No diary entries supplied for sync.' });
+        if (entries.length > 500) return res.status(400).json({ error: 'Diary sync is limited to 500 visits at a time.' });
+
+        const today = new Date().toISOString().slice(0, 10);
+        const existingRows = await diarySheet.getRows();
+        const existingKeys = new Set(
+          existingRows
+            .map(row => {
+              const existingPlaceId = String(row.get('placeId') || '').trim();
+              const existingPlaceType = String(row.get('placeType') || '').trim();
+              const existingDate = String(row.get('date') || '').trim();
+              return existingPlaceId && existingPlaceType && existingDate
+                ? `${existingPlaceType}:${existingPlaceId}:${existingDate}`
+                : '';
+            })
+            .filter(Boolean)
+        );
+        const seenKeys = new Set<string>();
+        const invalid: Array<{ name: string; date: string; reason: string }> = [];
+        const skipped: Array<{ name: string; date: string; reason: string }> = [];
+        const created: any[] = [];
+        const rowsToAdd: any[] = [];
+
+        for (const rawEntry of entries) {
+          const entryDate = String(rawEntry?.date || '').trim();
+          const entryPlaceId = String(rawEntry?.placeId || '').trim();
+          const entryPlaceType = String(rawEntry?.placeType || '').trim();
+          const entryName = String(rawEntry?.name || rawEntry?.title || 'Diary entry').trim() || 'Diary entry';
+          const key = `${entryPlaceType}:${entryPlaceId}:${entryDate}`;
+
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(entryDate)) {
+            invalid.push({ name: entryName, date: entryDate, reason: 'Invalid EXIF date' });
+            continue;
+          }
+          if (entryDate > today) {
+            invalid.push({ name: entryName, date: entryDate, reason: 'EXIF date is in the future' });
+            continue;
+          }
+          if (!entryPlaceId || !['place', 'hotel'].includes(entryPlaceType)) {
+            invalid.push({ name: entryName, date: entryDate, reason: 'Saved location link is missing' });
+            continue;
+          }
+          if (existingKeys.has(key) || seenKeys.has(key)) {
+            skipped.push({ name: entryName, date: entryDate, reason: 'Diary entry already exists' });
+            continue;
+          }
+
+          seenKeys.add(key);
+          const newId = Math.random().toString(36).substr(2, 9);
+          const normalized = {
+            id: newId,
+            date: entryDate,
+            title: String(rawEntry?.title || entryName),
+            notes: String(rawEntry?.notes || ''),
+            placeId: entryPlaceId,
+            placeType: entryPlaceType,
+            name: entryName,
+            address: String(rawEntry?.address || ''),
+            lat: Number(rawEntry?.lat) || 0,
+            lng: Number(rawEntry?.lng) || 0,
+            scope: String(rawEntry?.scope || 'Austin'),
+            createdAt: new Date().toISOString()
+          };
+          created.push(normalized);
+          rowsToAdd.push({
+            ...normalized,
+            lat: String(normalized.lat),
+            lng: String(normalized.lng)
+          });
+        }
+
+        if (rowsToAdd.length > 0) await diarySheet.addRows(rowsToAdd);
+        return res.status(200).json({
+          success: true,
+          created,
+          skipped,
+          invalid,
+          requested: entries.length
+        });
+      }
       
       if (action === 'checkPhotoMetadata') {
         if (!photosSheet || !photoUrl) return res.status(400).json({ error: 'Photo URL is required.' });
