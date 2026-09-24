@@ -626,6 +626,14 @@ const formatPhotoTimestamp = (value: string) => {
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
 };
 
+const photoCaptureDate = (value: string) => {
+  if (!value) return '';
+  const directMatch = value.match(/^(\d{4})[:-](\d{2})[:-](\d{2})/);
+  if (directMatch) return `${directMatch[1]}-${directMatch[2]}-${directMatch[3]}`;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? '' : format(parsed, 'yyyy-MM-dd');
+};
+
 const PhotoModal = ({ item, isOpen, onClose, onUpload, onCommentSave, onDeletePhoto, onBackfillPhotoDates, onCheckPhotoDate, appPassword, onExpand, onError }: { item: Place, isOpen: boolean, onClose: () => void, onUpload: (photo: PhotoDetails) => Promise<void>, onCommentSave: (url: string, comment: string) => Promise<void>, onDeletePhoto: (url: string) => void, onBackfillPhotoDates: () => Promise<void>, onCheckPhotoDate: (url: string) => Promise<string>, appPassword: string | null, onExpand: (urls: string[], index: number) => void, onError: (message: string) => void }) => {
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const [savingCommentUrl, setSavingCommentUrl] = useState<string | null>(null);
@@ -860,6 +868,8 @@ const App = () => {
   const [showDebugPanel, setShowDebugPanel] = useState(false);
   const [debugPhotoResults, setDebugPhotoResults] = useState<Record<string, string>>({});
   const [debugCheckingUrl, setDebugCheckingUrl] = useState<string | null>(null);
+  const [autoDiaryPhotoSync, setAutoDiaryPhotoSync] = useState(() => localStorage.getItem('todo_tracker_diary_photo_sync') !== 'false');
+  const [isDiaryPhotoSyncing, setIsDiaryPhotoSyncing] = useState(false);
   const [isAuthError, setIsAuthError] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [confirmationDialog, setConfirmationDialog] = useState<any>(null);
@@ -875,6 +885,10 @@ const App = () => {
     document.documentElement.classList.toggle('theme-dark', isDarkMode);
     document.documentElement.style.colorScheme = isDarkMode ? 'dark' : 'light';
   }, [isDarkMode]);
+
+  useEffect(() => {
+    localStorage.setItem('todo_tracker_diary_photo_sync', autoDiaryPhotoSync ? 'true' : 'false');
+  }, [autoDiaryPhotoSync]);
 
   useEffect(() => {
     if (!lockoutUntil) { localStorage.removeItem('todo_tracker_lockout'); return; }
@@ -1762,6 +1776,94 @@ const App = () => {
     );
   }, [places, hotels]);
 
+  const diaryPhotoCandidates = useMemo(() => {
+    const items = [
+      ...places.map(place => ({ ...place, type: 'place' as const })),
+      ...hotels.map(hotel => ({ ...hotel, type: 'hotel' as const, category: hotel.category || 'Hotels' })),
+    ];
+    const existingKeys = new Set(
+      diaryEntries
+        .filter(entry => entry.placeId && entry.placeType && entry.date)
+        .map(entry => `${entry.placeType}:${entry.placeId}:${entry.date}`)
+    );
+    const grouped = new Map<string, { item: Place & { type: 'place' | 'hotel' }; date: string; photos: PhotoDetails[] }>();
+
+    items.forEach(item => {
+      photoDetailsFor(item).forEach(photo => {
+        const date = photoCaptureDate(photo.capturedAt);
+        if (!date || date > format(new Date(), 'yyyy-MM-dd')) return;
+        const key = `${item.type}:${item.id}:${date}`;
+        if (existingKeys.has(key)) return;
+        const existing = grouped.get(key);
+        if (existing) existing.photos.push(photo);
+        else grouped.set(key, { item, date, photos: [photo] });
+      });
+    });
+
+    return Array.from(grouped.values()).sort((a, b) => a.date.localeCompare(b.date));
+  }, [places, hotels, diaryEntries]);
+
+  const syncDiaryFromPhotos = async (silent = false) => {
+    if (!isOwner || !appPassword || isDiaryPhotoSyncing) return;
+    if (diaryPhotoCandidates.length === 0) {
+      if (!silent) setToastMessage('Diary is already in sync with photo EXIF dates.');
+      return;
+    }
+
+    setIsDiaryPhotoSyncing(true);
+    const createdEntries: DiaryEntry[] = [];
+    let failed = 0;
+
+    for (const candidate of diaryPhotoCandidates) {
+      const photoNotes = Array.from(new Set(candidate.photos.map(photo => photo.comment.trim()).filter(Boolean)));
+      const entry = {
+        date: candidate.date,
+        title: candidate.item.name,
+        notes: photoNotes.join('\n'),
+        placeId: candidate.item.id,
+        placeType: candidate.item.type,
+        name: candidate.item.name,
+        address: candidate.item.address,
+        lat: Number(candidate.item.lat) || 0,
+        lng: Number(candidate.item.lng) || 0,
+        scope: candidate.item.scope || activeScope,
+        createdAt: new Date().toISOString()
+      };
+
+      try {
+        const response = await fetch('/api/places', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': appPassword },
+          body: JSON.stringify({ type: 'diary', ...entry })
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || 'Failed to create diary entry');
+        createdEntries.push({ ...entry, id: data.id });
+      } catch (error) {
+        console.error('Photo diary sync failed for', candidate.item.name, candidate.date, error);
+        failed += 1;
+      }
+    }
+
+    if (createdEntries.length > 0) {
+      setDiaryEntries(current => [...createdEntries, ...current]);
+    }
+    setIsDiaryPhotoSyncing(false);
+
+    if (!silent || failed > 0) {
+      const message = [
+        createdEntries.length > 0 ? `Added ${createdEntries.length} diary entr${createdEntries.length === 1 ? 'y' : 'ies'} from photo dates.` : '',
+        failed > 0 ? `${failed} failed to sync.` : ''
+      ].filter(Boolean).join(' ');
+      setToastMessage(message || 'Diary is already in sync with photo EXIF dates.');
+    }
+  };
+
+  useEffect(() => {
+    if (!isOwner || isLoading || !autoDiaryPhotoSync || isDiaryPhotoSyncing || diaryPhotoCandidates.length === 0) return;
+    void syncDiaryFromPhotos(true);
+  }, [isOwner, isLoading, autoDiaryPhotoSync, diaryPhotoCandidates.length]);
+
   return (
     <div className={`flex flex-col h-screen bg-slate-50 font-sans text-slate-900 ${isDarkMode ? 'theme-dark' : ''} ${isResizing ? 'cursor-col-resize select-none' : ''}`}>
       {showSignIn && !isOwner && (
@@ -1788,7 +1890,38 @@ const App = () => {
               </div>
               <button onClick={() => setShowDebugPanel(false)} className="p-2 text-slate-400 hover:text-slate-700"><X size={20} /></button>
             </div>
-            <div className="p-4 sm:p-5 overflow-y-auto space-y-3">
+            <div className="p-4 sm:p-5 overflow-y-auto space-y-4">
+              <div className="p-4 rounded-2xl border border-indigo-200 bg-indigo-50/40 space-y-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h4 className="text-sm font-bold text-slate-800 flex items-center gap-2"><BookOpen size={16} className="text-indigo-600" /> Diary sync from photos</h4>
+                    <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">Uses each photo's EXIF taken date to fill missing diary visits. One entry is created per saved location per day, and existing manual entries are left alone.</p>
+                  </div>
+                  <span className="shrink-0 px-2 py-1 rounded-full bg-white border border-indigo-100 text-[10px] font-black text-indigo-600">{diaryPhotoCandidates.length} ready</span>
+                </div>
+                <label className="flex items-center justify-between gap-4 cursor-pointer">
+                  <div>
+                    <p className="text-xs font-bold text-slate-700">Automatic photo diary sync</p>
+                    <p className="text-[10px] text-slate-400 mt-0.5">Runs after tracker data loads while you are signed in.</p>
+                  </div>
+                  <input type="checkbox" checked={autoDiaryPhotoSync} onChange={event => setAutoDiaryPhotoSync(event.target.checked)} className="accent-indigo-600 w-4 h-4 shrink-0" />
+                </label>
+                <button
+                  type="button"
+                  disabled={isDiaryPhotoSyncing || diaryPhotoCandidates.length === 0}
+                  onClick={() => void syncDiaryFromPhotos(false)}
+                  className="w-full py-2.5 rounded-xl bg-indigo-600 text-white text-xs font-bold flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {isDiaryPhotoSyncing ? <Loader2 size={15} className="animate-spin" /> : <Camera size={15} />}
+                  {isDiaryPhotoSyncing ? 'Syncing diary…' : diaryPhotoCandidates.length > 0 ? `Sync ${diaryPhotoCandidates.length} visit${diaryPhotoCandidates.length === 1 ? '' : 's'} now` : 'Diary is in sync'}
+                </button>
+              </div>
+
+              <div className="pt-1">
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400">Photo EXIF diagnostics</h4>
+                  <span className="text-[10px] text-slate-400">{missingPhotoEntries.length} missing taken date{missingPhotoEntries.length === 1 ? '' : 's'}</span>
+                </div>
               {missingPhotoEntries.length === 0 ? (
                 <div className="py-12 text-center text-sm font-semibold text-slate-500">All photos have a taken date.</div>
               ) : (
@@ -1828,6 +1961,7 @@ const App = () => {
                   </div>
                 ))
               )}
+              </div>
             </div>
             {missingPhotoEntries.length > 0 && (
               <div className="p-4 border-t bg-slate-50 shrink-0">
