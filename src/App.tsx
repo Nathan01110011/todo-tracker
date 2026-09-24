@@ -1811,12 +1811,9 @@ const App = () => {
     }
 
     setIsDiaryPhotoSyncing(true);
-    const createdEntries: DiaryEntry[] = [];
-    let failed = 0;
-
-    for (const candidate of diaryPhotoCandidates) {
+    const entries = diaryPhotoCandidates.map(candidate => {
       const photoNotes = Array.from(new Set(candidate.photos.map(photo => photo.comment.trim()).filter(Boolean)));
-      const entry = {
+      return {
         date: candidate.date,
         title: candidate.item.name,
         notes: photoNotes.join('\n'),
@@ -1829,33 +1826,40 @@ const App = () => {
         scope: candidate.item.scope || activeScope,
         createdAt: new Date().toISOString()
       };
+    });
 
-      try {
-        const response = await fetch('/api/places', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': appPassword },
-          body: JSON.stringify({ type: 'diary', ...entry })
-        });
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(data.error || 'Failed to create diary entry');
-        createdEntries.push({ ...entry, id: data.id });
-      } catch (error) {
-        console.error('Photo diary sync failed for', candidate.item.name, candidate.date, error);
-        failed += 1;
+    try {
+      const response = await fetch('/api/places', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': appPassword },
+        body: JSON.stringify({ type: 'diary', action: 'syncDiaryFromPhotos', entries })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || `Diary sync failed with HTTP ${response.status}`);
+
+      const createdEntries = Array.isArray(data.created) ? data.created as DiaryEntry[] : [];
+      const invalidEntries = Array.isArray(data.invalid) ? data.invalid : [];
+      if (createdEntries.length > 0) {
+        setDiaryEntries(current => [...createdEntries, ...current]);
       }
-    }
 
-    if (createdEntries.length > 0) {
-      setDiaryEntries(current => [...createdEntries, ...current]);
-    }
-    setIsDiaryPhotoSyncing(false);
-
-    if (!silent || failed > 0) {
-      const message = [
-        createdEntries.length > 0 ? `Added ${createdEntries.length} diary entr${createdEntries.length === 1 ? 'y' : 'ies'} from photo dates.` : '',
-        failed > 0 ? `${failed} failed to sync.` : ''
-      ].filter(Boolean).join(' ');
-      setToastMessage(message || 'Diary is already in sync with photo EXIF dates.');
+      if (!silent || invalidEntries.length > 0) {
+        const invalidSummary = invalidEntries.length > 0
+          ? ` ${invalidEntries.length} skipped: ${invalidEntries.slice(0, 3).map((entry: any) => `${entry.name} (${entry.reason})`).join(', ')}${invalidEntries.length > 3 ? '…' : ''}`
+          : '';
+        setToastMessage(
+          createdEntries.length > 0
+            ? `Added ${createdEntries.length} diary entr${createdEntries.length === 1 ? 'y' : 'ies'} from photo dates.${invalidSummary}`
+            : invalidEntries.length > 0
+              ? `No diary entries added.${invalidSummary}`
+              : 'Diary is already in sync with photo EXIF dates.'
+        );
+      }
+    } catch (error: any) {
+      console.error('Photo diary batch sync failed', error);
+      setToastMessage(`Diary photo sync failed: ${error.message || 'Unknown error'}`);
+    } finally {
+      setIsDiaryPhotoSyncing(false);
     }
   };
 
