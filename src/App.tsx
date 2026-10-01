@@ -4,17 +4,20 @@ import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline } from 'react-
 import L from 'leaflet';
 import { renderToStaticMarkup } from 'react-dom/server';
 import 'leaflet/dist/leaflet.css';
-import { 
+import TrackerNavigation, { type TrackerSection } from './components/TrackerNavigation';
+import PlaceCard from './components/PlaceCard';
+import type { Place, PhotoDetails } from './types';
+import {
   Check, CheckCircle2, Circle, Map as MapIcon, List, Filter, Home, Briefcase,
-  MapPin, Search, Star, X, Plus, Save, Loader2, Bed, RotateCcw, 
+  MapPin, Search, Star, X, Plus, Save, Loader2, Bed, RotateCcw,
   Lock, LogIn, LogOut, Eye, Info, Trophy, Camera, Upload, Image as ImageIcon,
   Maximize2, ChevronLeft, ChevronRight, Calendar, Route as RouteIcon,
-  Navigation, Trash2, CheckSquare, Pencil, Moon, Sun, BookOpen, LocateFixed, Settings
+  Navigation, Trash2, CheckSquare, Pencil, Moon, Sun, BookOpen, LocateFixed, Settings, Columns2, ChevronDown
 } from 'lucide-react';
-import { 
-  format, addMonths, subMonths, startOfMonth, endOfMonth, 
-  startOfWeek, endOfWeek, isSameMonth, isSameDay, addDays, 
-  parseISO 
+import {
+  format, addMonths, subMonths, startOfMonth, endOfMonth,
+  startOfWeek, endOfWeek, isSameMonth, isSameDay, addDays,
+  parseISO
 } from 'date-fns';
 
 // Fix for default marker icons
@@ -42,41 +45,12 @@ const createCustomIcon = (IconComponent: any, color: string) => {
   });
 };
 
-const homeIcon = createCustomIcon(Home, '#4f46e5'); // Indigo
+const homeIcon = createCustomIcon(Home, '#0f766e'); // Indigo
 const officeIcon = createCustomIcon(Briefcase, '#0891b2'); // Cyan
-const hotelMarkerIcon = createCustomIcon(Bed, '#8b5cf6'); // Violet
+const hotelMarkerIcon = createCustomIcon(Bed, '#2563eb'); // Violet
 const defaultPinIcon = createCustomIcon(MapPin, '#64748b'); // Slate
 
 // Types
-interface PhotoDetails {
-  url: string;
-  comment: string;
-  capturedAt: string;
-  uploadedAt: string;
-}
-
-interface Place {
-  id: string;
-  name: string;
-  address: string;
-  lat: number;
-  lng: number;
-  category: string;
-  status: string;
-  notes: string;
-  rating: string;
-  priority: string;
-  scope: string;
-  return?: string | boolean;
-  type?: 'place' | 'hotel';
-  details?: string;
-  date?: string;
-  eventStartDate?: string;
-  eventEndDate?: string;
-  photos?: string;
-  photoDetails?: PhotoDetails[];
-}
-
 interface MarkerData {
   id: string;
   name: string;
@@ -154,7 +128,7 @@ const MapController = ({ center, zoom, sidebarWidth, windowWidth, view, bounds }
   const map = useMap();
   const lastCenterRef = useRef<string | null>(null);
   const lastBoundsRef = useRef<string | null>(null);
-  
+
   useEffect(() => {
     if (bounds && Array.isArray(bounds) && bounds.length === 2) {
       const boundsKey = JSON.stringify(bounds);
@@ -186,7 +160,7 @@ const MapController = ({ center, zoom, sidebarWidth, windowWidth, view, bounds }
     } catch (e) {
       console.warn("Map movement prevented:", e);
     }
-  }, [center, zoom, map]);
+  }, [center, zoom, bounds, map]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -212,7 +186,7 @@ const Toast = ({ message, onClose }: { message: string, onClose: () => void }) =
   if (!message) return null;
 
   return (
-    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-5 py-3 rounded-xl shadow-lg z-[500] animate-in fade-in slide-in-from-bottom-2 duration-300">
+    <div role="status" className="tracker-toast fixed left-1/2 -translate-x-1/2 bg-slate-900 text-white px-5 py-3 rounded-xl shadow-lg z-[500] animate-in fade-in slide-in-from-bottom-2 duration-300">
       <p className="text-sm font-medium">{message}</p>
     </div>
   );
@@ -221,7 +195,7 @@ const Toast = ({ message, onClose }: { message: string, onClose: () => void }) =
 // Confirmation Dialog Component
 const ConfirmationDialog = ({ message, onConfirm, onCancel }: { message: string, onConfirm: () => void, onCancel: () => void }) => {
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[600] flex items-center justify-center p-4">
+    <div role="alertdialog" aria-modal="true" aria-label="Confirm change" className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[600] flex items-center justify-center p-4">
       <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm text-center animate-in zoom-in-90 duration-300">
         <p className="text-lg font-semibold text-slate-800 mb-6">{message}</p>
         <div className="flex gap-3 justify-center">
@@ -251,7 +225,7 @@ const EventDateDialog = ({ placeName, isAdding, onConfirm, onCancel }: {
   const invalidRange = Boolean(startDate && endDate && endDate < startDate);
 
   return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
+    <div role="dialog" aria-modal="true" aria-label="Event dates" className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
       <form
         onSubmit={(event) => {
           event.preventDefault();
@@ -265,14 +239,14 @@ const EventDateDialog = ({ placeName, isAdding, onConfirm, onCancel }: {
         </div>
         <div className="p-5 space-y-4">
           <label className="block space-y-1">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Start date</span>
+            <span className="text-xs font-bold tracking-wide text-slate-400">Start date</span>
             <input required type="date" value={startDate} onChange={(event) => { setStartDate(event.target.value); if (endDate && event.target.value > endDate) setEndDate(''); }} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
           </label>
           <label className="block space-y-1">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">End date <span className="normal-case font-medium">(optional)</span></span>
+            <span className="text-xs font-bold tracking-wide text-slate-400">End date <span className="normal-case font-medium">(optional)</span></span>
             <input type="date" min={startDate || undefined} value={endDate} onChange={(event) => setEndDate(event.target.value)} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
           </label>
-          <p className="text-[10px] text-slate-400">Leave the end date blank for a single-day event.</p>
+          <p className="text-xs text-slate-400">Leave the end date blank for a single-day event.</p>
         </div>
         <div className="p-5 border-t bg-slate-50 flex justify-end gap-2">
           <button type="button" disabled={isAdding} onClick={onCancel} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 hover:bg-white font-bold text-xs disabled:opacity-50">Back</button>
@@ -315,56 +289,56 @@ const EditLocationModal = ({ item, onSave, onDelete, onClose }: { item: Place, o
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[550] flex items-center justify-center p-4">
-      <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200">
+    <div role="dialog" aria-modal="true" aria-label="Edit location" className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[550] flex items-center justify-center p-4">
+      <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[92dvh] overflow-y-auto animate-in zoom-in-95 duration-200">
         <div className="p-5 border-b flex items-center justify-between">
           <div>
             <h3 className="font-bold text-lg text-slate-900">Edit Location</h3>
             <p className="text-xs text-slate-500">Adjust the saved details or remove it entirely.</p>
           </div>
-          <button type="button" onClick={onClose} className="p-2 rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700"><X size={20} /></button>
+          <button type="button" onClick={onClose} className="secondary-button">Close</button>
         </div>
         <div className="p-5 space-y-4">
           <label className="block space-y-1">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Name</span>
+            <span className="text-xs font-bold tracking-wide text-slate-400">Name</span>
             <input value={name} onChange={(e) => setName(e.target.value)} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
           </label>
           {!isHotel && (
             <label className="block space-y-1">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Category</span>
+              <span className="text-xs font-bold tracking-wide text-slate-400">Category</span>
               <select value={category} onChange={(e) => setCategory(e.target.value)} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm">
                 {['Food', 'Drinks', 'Activities', 'Shopping', 'Sport', 'Events', 'Other'].map(option => <option key={option} value={option}>{option}</option>)}
               </select>
             </label>
           )}
           <label className="block space-y-1">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Address</span>
+            <span className="text-xs font-bold tracking-wide text-slate-400">Address</span>
             <input value={address} onChange={(e) => setAddress(e.target.value)} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
           </label>
           <div className="grid grid-cols-2 gap-3">
             <label className="block space-y-1">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Latitude</span>
+              <span className="text-xs font-bold tracking-wide text-slate-400">Latitude</span>
               <input value={lat} onChange={(e) => setLat(e.target.value)} inputMode="decimal" className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
             </label>
             <label className="block space-y-1">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Longitude</span>
+              <span className="text-xs font-bold tracking-wide text-slate-400">Longitude</span>
               <input value={lng} onChange={(e) => setLng(e.target.value)} inputMode="decimal" className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
             </label>
           </div>
           {!isHotel && (
             <label className="block space-y-1">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Details</span>
+              <span className="text-xs font-bold tracking-wide text-slate-400">Details</span>
               <input value={details} onChange={(e) => setDetails(e.target.value)} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
             </label>
           )}
           {!isHotel && category === 'Events' && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <label className="block space-y-1">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Event start</span>
+                <span className="text-xs font-bold tracking-wide text-slate-400">Event start</span>
                 <input required type="date" value={eventStartDate} onChange={(event) => { setEventStartDate(event.target.value); if (eventEndDate && event.target.value > eventEndDate) setEventEndDate(''); }} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
               </label>
               <label className="block space-y-1">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Event end <span className="normal-case font-medium">(optional)</span></span>
+                <span className="text-xs font-bold tracking-wide text-slate-400">Event end <span className="normal-case font-medium">(optional)</span></span>
                 <input type="date" min={eventStartDate || undefined} value={eventEndDate} onChange={(event) => setEventEndDate(event.target.value)} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
               </label>
             </div>
@@ -444,7 +418,7 @@ const CustomDatePicker = ({ value, onChange }: { value: string, onChange: (date:
       <button onClick={() => setCurrentMonth(subMonths(currentMonth, 1))} className="p-1.5 hover:bg-slate-50 rounded-full text-slate-400 hover:text-indigo-600 transition-colors">
         <ChevronLeft size={18} />
       </button>
-      <span className="text-sm font-black text-slate-700 uppercase tracking-wider">
+      <span className="text-sm font-semibold text-slate-700 tracking-wide">
         {format(currentMonth, 'MMMM yyyy')}
       </span>
       <button onClick={() => setCurrentMonth(addMonths(currentMonth, 1))} className="p-1.5 hover:bg-slate-50 rounded-full text-slate-400 hover:text-indigo-600 transition-colors">
@@ -459,7 +433,7 @@ const CustomDatePicker = ({ value, onChange }: { value: string, onChange: (date:
     let startDate = startOfWeek(currentMonth);
     for (let i = 0; i < 7; i++) {
       days.push(
-        <div key={i} className="text-[10px] font-bold text-slate-400 uppercase text-center py-2">
+        <div key={i} className="text-xs font-bold text-slate-400 uppercase text-center py-2">
           {format(addDays(startDate, i), dateFormat)}
         </div>
       );
@@ -525,13 +499,13 @@ const CustomDatePicker = ({ value, onChange }: { value: string, onChange: (date:
       <div className="p-3 bg-slate-50 border-t border-slate-100 flex justify-between items-center">
         <button
           onClick={() => { onChange(''); setIsOpen(false); }}
-          className="text-[10px] font-bold text-slate-400 hover:text-red-500 uppercase tracking-wider transition-colors"
+          className="text-xs font-bold text-slate-400 hover:text-red-500 tracking-wide transition-colors"
         >
           Clear Date
         </button>
         <button
           onClick={() => { onChange(format(new Date(), 'yyyy-MM-dd')); setIsOpen(false); }}
-          className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 uppercase tracking-wider transition-colors"
+          className="text-xs font-bold text-indigo-600 hover:text-indigo-800 tracking-wide transition-colors"
         >
           Today
         </button>
@@ -550,7 +524,7 @@ const CustomDatePicker = ({ value, onChange }: { value: string, onChange: (date:
           setCurrentMonth(value ? parseISO(value) : new Date());
           setIsOpen(!isOpen);
         }}
-        className="w-full text-xs font-black text-indigo-600 bg-indigo-50/50 border border-indigo-100/50 rounded-xl pl-9 pr-3 py-2.5 hover:bg-white focus:ring-2 focus:ring-indigo-500 transition-all flex items-center shadow-sm"
+        className="w-full text-xs font-semibold text-indigo-600 bg-indigo-50/50 border border-indigo-100/50 rounded-xl pl-9 pr-3 py-2.5 hover:bg-white focus:ring-2 focus:ring-indigo-500 transition-all flex items-center shadow-sm"
       >
         <Calendar size={16} className="absolute left-3 text-indigo-400" strokeWidth={2.5} />
         {value ? format(parseISO(value), 'MMM d, yyyy') : 'Pick a date'}
@@ -581,12 +555,12 @@ const Lightbox = ({ urls, initialIndex, onClose }: { urls: string[], initialInde
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
   return (
-    <div className="fixed inset-0 bg-black/95 backdrop-blur-xl z-[300] flex items-center justify-center" onClick={onClose}>
-      <button onClick={onClose} className="absolute top-6 right-6 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white transition-colors z-[310]"><X size={28} /></button>
+    <div role="dialog" aria-modal="true" aria-label="Photo viewer" className="fixed inset-0 bg-black/95 backdrop-blur-xl z-[300] flex items-center justify-center" onClick={onClose}>
+      <button type="button" aria-label="Close photo viewer" onClick={onClose} className="absolute top-6 right-6 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white transition-colors z-[310]"><X size={28} /></button>
       {urls.length > 1 && (
         <>
-          <button onClick={prev} className="absolute left-4 top-1/2 -translate-y-1/2 p-4 bg-white/5 hover:bg-white/10 rounded-full text-white transition-all z-[310]"><ChevronLeft size={32} /></button>
-          <button onClick={next} className="absolute right-4 top-1/2 -translate-y-1/2 p-4 bg-white/5 hover:bg-white/10 rounded-full text-white transition-all z-[310]"><ChevronRight size={32} /></button>
+          <button type="button" aria-label="Previous photo" onClick={prev} className="absolute left-4 top-1/2 -translate-y-1/2 p-4 bg-white/5 hover:bg-white/10 rounded-full text-white transition-all z-[310]"><ChevronLeft size={32} /></button>
+          <button type="button" aria-label="Next photo" onClick={next} className="absolute right-4 top-1/2 -translate-y-1/2 p-4 bg-white/5 hover:bg-white/10 rounded-full text-white transition-all z-[310]"><ChevronRight size={32} /></button>
           <div className="absolute bottom-6 left-1/2 -translate-x-1/2 text-white/50 text-sm font-medium tracking-widest">{currentIndex + 1} / {urls.length}</div>
         </>
       )}
@@ -691,11 +665,11 @@ const PhotoModal = ({ item, isOpen, onClose, onUpload, onCommentSave, onDeletePh
   };
   if (!isOpen) return null;
   return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[200] flex items-center justify-center p-2 sm:p-4">
+    <div role="dialog" aria-modal="true" aria-label={`Photos of ${item.name}`} className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[200] flex items-center justify-center p-2 sm:p-4">
       <div className="bg-white rounded-2xl sm:rounded-3xl shadow-2xl w-full max-w-4xl h-[calc(100dvh-1rem)] sm:h-full max-h-[calc(100dvh-1rem)] sm:max-h-[90vh] min-h-0 flex flex-col overflow-hidden animate-in zoom-in duration-200">
         <div className="p-4 sm:p-6 border-b flex justify-between items-center bg-indigo-50/30 shrink-0">
           <div><h3 className="text-lg sm:text-xl font-bold text-slate-900">{item.name}</h3><p className="text-xs sm:text-sm text-slate-500 line-clamp-1">{item.address}</p></div>
-          <button onClick={onClose} className="p-2 hover:bg-white rounded-full transition-colors"><X size={24} className="text-slate-400" /></button>
+          <button type="button" onClick={onClose} className="secondary-button">Close</button>
         </div>
         <div className="flex-1 overflow-y-auto p-4 sm:p-8 space-y-8">
           {photos.length === 0 ? (
@@ -724,7 +698,7 @@ const PhotoModal = ({ item, isOpen, onClose, onUpload, onCommentSave, onDeletePh
                 <div key={photo.url} className={`w-full rounded-2xl sm:rounded-3xl overflow-hidden shadow-lg border bg-white ${photo.capturedAt ? 'border-slate-100' : 'border-amber-400 ring-2 ring-amber-100'}`}>
                   <div onClick={() => onExpand(photoUrls, i)} className="group relative cursor-pointer bg-slate-50 flex items-center justify-center min-h-[300px]">
                     {!photo.capturedAt && (
-                      <div className="absolute top-3 left-3 z-10 px-2.5 py-1 rounded-full bg-amber-100 text-amber-800 border border-amber-300 text-[11px] font-extrabold shadow-sm">
+                      <div className="absolute top-3 left-3 z-10 px-2.5 py-1 rounded-full bg-amber-100 text-amber-800 border border-amber-300 text-xs font-extrabold shadow-sm">
                         Missing taken date
                       </div>
                     )}
@@ -754,7 +728,7 @@ const PhotoModal = ({ item, isOpen, onClose, onUpload, onCommentSave, onDeletePh
                         >
                           {checkingPhotoUrl === photo.url ? 'Checking EXIF…' : 'Check EXIF for this photo'}
                         </button>
-                        {photoCheckResults[photo.url] && <p className="text-[11px] text-slate-500 break-words">{photoCheckResults[photo.url]}</p>}
+                        {photoCheckResults[photo.url] && <p className="text-xs text-slate-500 break-words">{photoCheckResults[photo.url]}</p>}
                       </div>
                     )}
                     {appPassword ? <>
@@ -766,7 +740,7 @@ const PhotoModal = ({ item, isOpen, onClose, onUpload, onCommentSave, onDeletePh
                         className="w-full min-h-20 resize-y px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-sm outline-none focus:ring-2 focus:ring-indigo-500"
                       />
                       <div className="flex items-center justify-between gap-3">
-                        <span className="text-[10px] font-bold text-slate-400">{draft.length}/280</span>
+                        <span className="text-xs font-bold text-slate-400">{draft.length}/280</span>
                         <div className="flex items-center gap-2">
                           <button
                             onClick={() => onDeletePhoto(photo.url)}
@@ -803,7 +777,7 @@ const PhotoModal = ({ item, isOpen, onClose, onUpload, onCommentSave, onDeletePh
             </button>
             {hasMissingCaptureDates && (
               <>
-                <div className="text-center text-[11px] font-bold text-amber-700">
+                <div className="text-center text-xs font-bold text-amber-700">
                   {missingCaptureDateCount} photo{missingCaptureDateCount === 1 ? '' : 's'} still missing a taken date
                 </div>
                 <button
@@ -846,15 +820,17 @@ const App = () => {
   const [activeRouteId, setActiveRouteId] = useState<string | null>(null);
   const [journeyFilter, setJourneyFilter] = useState('All');
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [selectedMapId, setSelectedMapId] = useState<string | null>(null);
   const [filter, setFilter] = useState('TODO');
   const [activeScope, setActiveScope] = useState<ScopeName>('Austin');
-  const [visitedFilter, setVisitedFilter] = useState('All');
+  const [placeCategory, setPlaceCategory] = useState('All');
+  const [listSearch, setListSearch] = useState('');
+  const [showAddPlace, setShowAddPlace] = useState(false);
+  const listPanelRef = useRef<HTMLDivElement>(null);
   const [nearbyLocation, setNearbyLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [nearbyIncludeVisited, setNearbyIncludeVisited] = useState(false);
   const [isNearbyLocating, setIsNearbyLocating] = useState(false);
-  const [view, setView] = useState('split');
-  const [sidebarWidth, setSidebarWidth] = useState(33.33);
-  const [isResizing, setIsResizing] = useState(false);
+  const [view, setView] = useState(window.innerWidth < 900 ? 'list' : 'split');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [mapTarget, setMapTarget] = useState<any>(null);
@@ -923,12 +899,43 @@ const App = () => {
   const [diaryMarkVisited, setDiaryMarkVisited] = useState(true);
 
   useEffect(() => {
-    const handleResize = () => { setWindowWidth(window.innerWidth); if (window.innerWidth >= 640 && view === 'map') setView('split'); };
+    const handleResize = () => setWindowWidth(window.innerWidth);
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, [view]);
 
-  useEffect(() => { if (filter !== 'Visited') setVisitedFilter('All'); }, [filter]);
+  const dialogKey = confirmationDialog ? 'confirmation' : editingItem && isOwner ? 'edit' : lightboxState ? 'lightbox' : showDebugPanel && isOwner ? 'settings' : showSignIn && !isOwner ? 'sign-in' : showEventDateDialog && isOwner ? 'event' : showAddPlace && isOwner ? 'add' : activePhotoItem ? 'photos' : showDiaryDialog && isOwner ? 'diary' : '';
+  useEffect(() => {
+    if (!dialogKey) return;
+    const previousFocus = document.activeElement as HTMLElement | null;
+    const getDialog = () => Array.from(document.querySelectorAll<HTMLElement>('[aria-modal="true"]')).sort((a, b) => Number(getComputedStyle(b).zIndex) - Number(getComputedStyle(a).zIndex))[0];
+    const getFocusables = () => Array.from(getDialog()?.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]):not([type="file"]), textarea:not([disabled]), select:not([disabled]), [tabindex="0"]') || []).filter(element => element.getClientRects().length > 0);
+    const frame = requestAnimationFrame(() => { if (!getDialog()?.contains(document.activeElement)) getFocusables()[0]?.focus(); });
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        if (dialogKey === 'confirmation') { confirmationDialog?.onCancel?.(); setConfirmationDialog(null); }
+        else if (dialogKey === 'edit') setEditingItem(null);
+        else if (dialogKey === 'lightbox') setLightboxState(null);
+        else if (dialogKey === 'settings') setShowDebugPanel(false);
+        else if (dialogKey === 'sign-in') setShowSignIn(false);
+        else if (dialogKey === 'event') setShowEventDateDialog(false);
+        else if (dialogKey === 'add') { setShowAddPlace(false); setPendingPlace(null); }
+        else if (dialogKey === 'photos') setActivePhotoItem(null);
+        else if (dialogKey === 'diary') resetDiaryDialog();
+      }
+      if (event.key === 'Tab') {
+        const elements = getFocusables();
+        const first = elements[0], last = elements[elements.length - 1];
+        if (event.shiftKey && (document.activeElement === first || !getDialog()?.contains(document.activeElement))) { event.preventDefault(); last?.focus(); }
+        else if (!event.shiftKey && (document.activeElement === last || !getDialog()?.contains(document.activeElement))) { event.preventDefault(); first?.focus(); }
+      }
+    };
+    document.addEventListener('keydown', handleKey);
+    return () => { cancelAnimationFrame(frame); document.removeEventListener('keydown', handleKey); if (previousFocus?.isConnected) previousFocus.focus(); };
+  }, [dialogKey]);
+
+  useEffect(() => { listPanelRef.current?.scrollTo({ top: 0 }); }, [filter, activeScope, placeCategory]);
 
   useEffect(() => {
     setIsLoading(true);
@@ -940,13 +947,13 @@ const App = () => {
         if (!res.ok) return res.json().then(err => { throw new Error(err.error || 'Failed to fetch'); });
         return res.json();
       })
-      .then(data => { 
-        setPlaces(data.places || []); 
-        setMarkers(data.markers || []); 
-        setHotels(data.hotels || []); 
+      .then(data => {
+        setPlaces(data.places || []);
+        setMarkers(data.markers || []);
+        setHotels(data.hotels || []);
         setRoutes(data.routes || []);
         setDiaryEntries(data.diaryEntries || []);
-        setIsAuthError(false); 
+        setIsAuthError(false);
         if (appPassword) { setShowSignIn(false); setPwInput(''); }
       })
       .catch(err => { if (err.message !== 'Unauthorized' && err.message !== 'System Locked') setError(err.message); })
@@ -960,6 +967,9 @@ const App = () => {
     setIsJourneyMode(false);
     setEditingItem(null);
     setPendingPlace(null);
+    setShowAddPlace(false);
+    setShowDebugPanel(false);
+    setShowDiaryDialog(false);
     setToastMessage('Signed out. You are now viewing read-only.');
   };
 
@@ -1026,7 +1036,7 @@ const App = () => {
     try {
       const res = await fetch('/api/places', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': appPassword || '' }, body: JSON.stringify(newEntry) });
       const data = await res.json();
-      if (data.success) { if (isHotel) setHotels(prev => [...prev, { ...newEntry, id: data.id }]); else setPlaces(prev => [...prev, { ...newEntry, id: data.id }]); setPendingPlace(null); setPendingName(''); setPendingDetails(''); setShowEventDateDialog(false); setSearchQuery(''); setSearchResults([]); setFilter(isHotel ? 'Hotels' : category === 'Events' ? 'Events' : 'All'); }
+      if (data.success) { if (isHotel) setHotels(prev => [...prev, { ...newEntry, id: data.id }]); else setPlaces(prev => [...prev, { ...newEntry, id: data.id }]); setPendingPlace(null); setPendingName(''); setPendingDetails(''); setShowEventDateDialog(false); setSearchQuery(''); setSearchResults([]); setFilter('All'); setPlaceCategory(category); setListSearch(''); setShowAddPlace(false); }
     } catch (err) { setError("Failed to add entry."); } finally { setIsAdding(false); }
   };
 
@@ -1306,8 +1316,8 @@ const App = () => {
 
   const getJourneyItems = (ids: string[]) => {
     const allItems = [
-      ...places.map(p => ({ ...p, type: 'place' as const })), 
-      ...hotels.map(h => ({ ...h, type: 'hotel' as const })), 
+      ...places.map(p => ({ ...p, type: 'place' as const })),
+      ...hotels.map(h => ({ ...h, type: 'hotel' as const })),
       ...markers.map(m => ({ ...m, type: 'marker' as const }))
     ];
 
@@ -1336,7 +1346,7 @@ const App = () => {
     if (ids.length < 3) return ids;
 
     const selectedItems = getJourneyItems(ids);
-    
+
     if (selectedItems.length < 2) return ids;
 
     const result = [selectedItems[0]];
@@ -1397,7 +1407,7 @@ const App = () => {
   };
 
   const toggleJourneyPlace = (id: string) => {
-    setSelectedJourneyPlaces(prev => 
+    setSelectedJourneyPlaces(prev =>
       prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
     );
   };
@@ -1519,18 +1529,46 @@ const App = () => {
     });
   };
 
-  const categories = ['TODO', 'Nearby', 'Trips', 'Diary', 'Events', 'Food', 'Drinks', 'Activities', 'Shopping', 'Sport', 'Hotels', 'Saved', 'Visited', 'All'];
+  const placeCategories = ['All', 'Food', 'Drinks', 'Activities', 'Shopping', 'Sport', 'Events', 'Hotels', 'Other'];
+  const activeSection: TrackerSection = filter === 'Saved' ? 'Pins' : filter === 'Nearby' || filter === 'Trips' || filter === 'Diary' ? filter : 'Places';
+  const matchesSearch = (item: { name?: string; title?: string; address?: string; details?: string; notes?: string }) =>
+    [item.name, item.title, item.address, item.details, item.notes].join(' ').toLowerCase().includes(listSearch.trim().toLowerCase());
+  const scopedItems = [...places, ...hotels].filter(item => item.scope === activeScope);
+  const toDoCount = scopedItems.filter(item => item.status === 'To Do').length;
+  const visitedCount = scopedItems.filter(item => item.status === 'Visited').length;
+  const sectionCounts = { Places: scopedItems.length, Trips: routes.filter(route => route.scope === activeScope).length, Diary: diaryEntries.filter(entry => entry.scope === activeScope).length, Pins: markers.filter(marker => marker.scope === activeScope).length };
+  const navigateSection = (section: TrackerSection) => {
+    setFilter(section === 'Places' ? 'TODO' : section === 'Pins' ? 'Saved' : section);
+    setListSearch('');
+    setPlaceCategory('All');
+    setHoveredId(null);
+    setSelectedMapId(null);
+    if (section !== 'Trips') { setIsJourneyMode(false); setActiveRouteId(null); }
+    if (windowWidth < 900) setView('list');
+    if (section === 'Nearby' && !nearbyLocation) locateNearby();
+  };
+  const createTrip = () => {
+    setFilter('Trips'); setIsJourneyMode(true); setSelectedJourneyPlaces([]); setJourneyName('');
+    setTripType('ordered'); setJourneySortMode('shortest'); setActiveRouteId(null); setJourneyFilter('All'); setListSearch('');
+    if (windowWidth < 900 || view === 'map') setView(windowWidth < 900 ? 'list' : 'split');
+  };
+  const locateItem = (item: { lat: number; lng: number; id?: string; type?: 'place' | 'hotel' }) => {
+    if (!Number.isFinite(Number(item.lat)) || !Number.isFinite(Number(item.lng))) return;
+    if (item.id && item.type) setSelectedMapId(`${item.type}:${item.id}`);
+    setMapTarget({ center: [Number(item.lat), Number(item.lng)], zoom: 15 });
+    if (windowWidth < 900) setView('map'); else if (view === 'list') setView('split');
+  };
   const diaryGroups = useMemo(() => {
     const scopedEntries = diaryEntries
-      .filter(entry => entry.scope === activeScope)
+      .filter(entry => entry.scope === activeScope && matchesSearch(entry))
       .sort((a, b) => `${b.date}-${b.createdAt}`.localeCompare(`${a.date}-${a.createdAt}`));
     return scopedEntries.reduce<Record<string, DiaryEntry[]>>((groups, entry) => {
       if (!groups[entry.date]) groups[entry.date] = [];
       groups[entry.date].push(entry);
       return groups;
     }, {});
-  }, [diaryEntries, activeScope]);
-  const effectiveSidebarWidth = useMemo(() => { if (windowWidth < 640) return view === 'map' ? 0 : 100; if (view === 'map') return 0; if (filter === 'Visited') return 66.66; return sidebarWidth; }, [windowWidth, view, filter, sidebarWidth]);
+  }, [diaryEntries, activeScope, listSearch]);
+  const effectiveSidebarWidth = windowWidth < 900 ? (view === 'map' ? 0 : 100) : view === 'map' ? 0 : view === 'list' ? 100 : 48;
 
   const filteredMarkers = useMemo(() => markers.filter(m => m.scope === activeScope), [markers, activeScope]);
 
@@ -1543,7 +1581,7 @@ const App = () => {
       if (route) ids = route.placeIds;
     }
     if (ids.length === 0) return [];
-    
+
     return getJourneyItems(ids);
   }, [isJourneyMode, selectedJourneyPlaces, activeRouteId, routes, places, hotels, markers, filter, journeySortMode, tripType]);
 
@@ -1552,15 +1590,16 @@ const App = () => {
     : routes.find(route => route.id === activeRouteId)?.tripType !== 'unordered';
 
   const hoveredItem = useMemo(() => {
-    if (!hoveredId) return null;
-    const [type, id] = hoveredId.split(':');
+    const previewId = selectedMapId || hoveredId;
+    if (!previewId) return null;
+    const [type, id] = previewId.split(':');
     const allItems = [
-      ...places.map(p => ({ ...p, type: 'place' as const })), 
-      ...hotels.map(h => ({ ...h, type: 'hotel' as const })), 
+      ...places.map(p => ({ ...p, type: 'place' as const })),
+      ...hotels.map(h => ({ ...h, type: 'hotel' as const })),
       ...markers.map(m => ({ ...m, type: 'marker' as const }))
     ];
     return allItems.find(item => item.id === id && item.type === type) || null;
-  }, [hoveredId, places, hotels, markers]);
+  }, [hoveredId, selectedMapId, places, hotels, markers]);
 
   useEffect(() => {
     if (currentRoutePoints.length >= 2) {
@@ -1575,66 +1614,37 @@ const App = () => {
   }, [currentRoutePoints]);
 
   const filteredPlaces = useMemo(() => {
-    const scopePlaces = places.filter(p => p.scope === activeScope);
+    const scopePlaces = places.filter(item => item.scope === activeScope && matchesSearch(item));
     if (isJourneyMode) {
-      if (journeyFilter === 'To Do') return scopePlaces.filter(p => p.status === 'To Do');
-      if (journeyFilter === 'Visited') return scopePlaces.filter(p => p.status === 'Visited');
-      return scopePlaces;
-    }
-    if (filter === 'Nearby') {
-      if (!nearbyLocation) return [];
-      return scopePlaces
-        .filter(p => p.lat && p.lng && (nearbyIncludeVisited || p.status !== 'Visited'))
-        .sort((a, b) => getDistance(nearbyLocation, a) - getDistance(nearbyLocation, b));
-    }
-    if (filter === 'Visited') {
-      let res = scopePlaces.filter(p => p.status === 'Visited');
-      if (visitedFilter !== 'All') res = res.filter(p => p.category === visitedFilter);
-      return res;
-    }
-    if (filter === 'TODO') return scopePlaces.filter(p => p.status === 'To Do');
-    if (filter === 'All') return scopePlaces;
-    if (filter === 'Nearby') {
-      if (!nearbyLocation) return [];
-      return scopeHotels
-        .filter(h => h.lat && h.lng && (nearbyIncludeVisited || h.status !== 'Visited'))
-        .sort((a, b) => getDistance(nearbyLocation, a) - getDistance(nearbyLocation, b));
+      return scopePlaces.filter(item => journeyFilter === 'All' || item.status === journeyFilter);
     }
     if (filter === 'Trips') {
-      if (!activeRouteId) return [];
-      const route = routes.find(r => r.id === activeRouteId);
-      if (!route) return [];
-      return scopePlaces.filter(p =>
-        route.placeIds.includes(`place:${p.id}`) || route.placeIds.includes(p.id)
-      );
+      const route = routes.find(item => item.id === activeRouteId);
+      return route ? scopePlaces.filter(item => route.placeIds.includes(`place:${item.id}`) || route.placeIds.includes(item.id)) : [];
     }
-    if (filter === 'Hotels' || filter === 'Saved') return [];
-    return scopePlaces.filter(p => p.category === filter && p.status === 'To Do');
-  }, [places, filter, activeScope, visitedFilter, isJourneyMode, journeyFilter, routes, activeRouteId, nearbyLocation, nearbyIncludeVisited]);
+    if (filter === 'Diary' || filter === 'Saved') return [];
+    return scopePlaces.filter(item => {
+      if (placeCategory !== 'All' && (item.category || 'Other') !== placeCategory) return false;
+      if (filter === 'Nearby') return nearbyLocation && item.lat && item.lng && (nearbyIncludeVisited || item.status !== 'Visited');
+      if (filter === 'Visited') return item.status === 'Visited';
+      if (filter === 'TODO') return item.status === 'To Do';
+      return true;
+    });
+  }, [places, filter, activeScope, placeCategory, listSearch, isJourneyMode, journeyFilter, routes, activeRouteId, nearbyLocation, nearbyIncludeVisited]);
 
   const filteredHotels = useMemo(() => {
-    const scopeHotels = hotels.filter(h => h.scope === activeScope);
-    if (isJourneyMode) {
-      if (journeyFilter === 'To Do') return scopeHotels.filter(h => h.status === 'To Do');
-      if (journeyFilter === 'Visited') return scopeHotels.filter(h => h.status === 'Visited');
-      return scopeHotels;
-    }
+    const scopeHotels = hotels.filter(item => item.scope === activeScope && matchesSearch(item));
+    if (isJourneyMode) return scopeHotels.filter(item => journeyFilter === 'All' || item.status === journeyFilter);
     if (filter === 'Trips') {
-      if (!activeRouteId) return [];
-      const route = routes.find(r => r.id === activeRouteId);
-      if (!route) return [];
-      return scopeHotels.filter(h => route.placeIds.includes(`hotel:${h.id}`));
+      const route = routes.find(item => item.id === activeRouteId);
+      return route ? scopeHotels.filter(item => route.placeIds.includes(`hotel:${item.id}`)) : [];
     }
-    if (filter === 'Hotels') return scopeHotels.filter(h => h.status === 'To Do');
-    if (filter === 'Visited') {
-      let res = scopeHotels.filter(h => h.status === 'Visited');
-      if (visitedFilter === 'All' || visitedFilter === 'Hotels') return res;
-      return [];
-    }
-    if (filter === 'TODO') return scopeHotels.filter(h => h.status === 'To Do');
-    if (filter === 'All') return scopeHotels;
-    return [];
-  }, [hotels, filter, activeScope, visitedFilter, isJourneyMode, journeyFilter, routes, activeRouteId, nearbyLocation, nearbyIncludeVisited]);
+    if (filter === 'Diary' || filter === 'Saved' || (placeCategory !== 'All' && placeCategory !== 'Hotels')) return [];
+    if (filter === 'Nearby') return nearbyLocation ? scopeHotels.filter(item => item.lat && item.lng && (nearbyIncludeVisited || item.status !== 'Visited')) : [];
+    if (filter === 'Visited') return scopeHotels.filter(item => item.status === 'Visited');
+    if (filter === 'TODO') return scopeHotels.filter(item => item.status === 'To Do');
+    return scopeHotels;
+  }, [hotels, filter, activeScope, placeCategory, listSearch, isJourneyMode, journeyFilter, routes, activeRouteId, nearbyLocation, nearbyIncludeVisited]);
 
   const displayItems = useMemo(() => {
     const items = [
@@ -1651,31 +1661,32 @@ const App = () => {
 
   const visitedGroups = useMemo(() => {
     if (filter !== 'Visited') return {};
-    let all = [...places.filter(p => p.scope === activeScope && p.status === 'Visited').map(p => ({ ...p, type: 'place' as const })), ...hotels.filter(h => h.scope === activeScope && h.status === 'Visited').map(h => ({ ...h, category: 'Hotels', type: 'hotel' as const }))];
-    if (visitedFilter !== 'All') all = all.filter(item => item.category === visitedFilter);
-    const groups = all.reduce((acc: any, item) => { const cat = item.category || 'Other'; if (!acc[cat]) acc[cat] = []; acc[cat].push(item); return acc; }, {});
-    Object.keys(groups).forEach(cat => {
-      groups[cat].sort((a: any, b: any) => {
-        const aScore = a.rating ? parseInt(a.rating) : 0; const bScore = b.rating ? parseInt(b.rating) : 0;
-        if (aScore === 0 && bScore !== 0) return -1; if (aScore !== 0 && bScore === 0) return 1; if (aScore !== bScore) return bScore - aScore;
-        const aRet = a.return === 'TRUE' || a.return === true; const bRet = b.return === 'TRUE' || b.return === true;
-        if (aRet && !bRet) return -1; if (!aRet && bRet) return 1; return 0;
-      });
-    });
+    const groups = displayItems.reduce<Record<string, (Place & { type: 'place' | 'hotel' })[]>>((result, item) => {
+      const category = item.category || 'Other';
+      (result[category] ||= []).push(item);
+      return result;
+    }, {});
+    Object.values(groups).forEach(items => items.sort((a, b) => {
+      const aScore = Number(a.rating) || 0; const bScore = Number(b.rating) || 0;
+      if (aScore === 0 && bScore !== 0) return -1;
+      if (bScore === 0 && aScore !== 0) return 1;
+      if (aScore !== bScore) return bScore - aScore;
+      return Number(b.return === true || b.return === 'TRUE') - Number(a.return === true || a.return === 'TRUE');
+    }));
     return groups;
-  }, [places, hotels, filter, activeScope, visitedFilter]);
+  }, [displayItems, filter]);
 
   const getMarkerIcon = (type: string, id: string) => {
     const compositeId = `marker:${id}`;
     const isHovered = hoveredId === compositeId;
-    const color = isHovered ? '#f59e0b' : (type === 'home' ? '#4f46e5' : type === 'office' ? '#0891b2' : '#64748b');
+    const color = isHovered ? '#f59e0b' : (type === 'home' ? '#0f766e' : type === 'office' ? '#0891b2' : '#64748b');
     const scale = isHovered ? 1.2 : 1;
     const IconComponent = type === 'home' ? Home : type === 'office' ? Briefcase : MapPin;
 
     return L.divIcon({
       html: renderToStaticMarkup(
-        <div 
-          style={{ color, transform: `scale(${scale})` }} 
+        <div
+          style={{ color, transform: `scale(${scale})` }}
           className="bg-white rounded-full shadow-lg border-2 border-current flex items-center justify-center w-[30px] h-[30px] transition-all duration-200"
         >
           <IconComponent size={18} strokeWidth={2.5} />
@@ -1690,13 +1701,13 @@ const App = () => {
   const getHotelIcon = (id: string) => {
     const compositeId = `hotel:${id}`;
     const isHovered = hoveredId === compositeId;
-    const color = isHovered ? '#f59e0b' : '#8b5cf6';
+    const color = isHovered ? '#f59e0b' : '#2563eb';
     const scale = isHovered ? 1.2 : 1;
 
     return L.divIcon({
       html: renderToStaticMarkup(
-        <div 
-          style={{ color, transform: `scale(${scale})` }} 
+        <div
+          style={{ color, transform: `scale(${scale})` }}
           className="bg-white rounded-full shadow-lg border-2 border-current flex items-center justify-center w-[30px] h-[30px] transition-all duration-200"
         >
           <Bed size={18} strokeWidth={2.5} />
@@ -1716,8 +1727,8 @@ const App = () => {
 
     return L.divIcon({
       html: renderToStaticMarkup(
-        <div 
-          style={{ color, transform: `scale(${scale})` }} 
+        <div
+          style={{ color, transform: `scale(${scale})` }}
           className="bg-white rounded-full shadow-lg border-2 border-current flex items-center justify-center w-[30px] h-[30px] transition-all duration-200"
         >
           <MapPin size={18} strokeWidth={2.5} />
@@ -1728,10 +1739,6 @@ const App = () => {
       iconAnchor: [15, 30],
     });
   };
-
-  const StarRating = ({ rating, onChange, readOnly = false }: { rating: string, onChange: (r: string) => void, readOnly?: boolean }) => (
-    <div className="flex gap-1 shrink-0">{[1, 2, 3, 4, 5].map(star => (<button key={star} disabled={readOnly} onClick={(e) => { e.stopPropagation(); if (!readOnly) onChange(star.toString()); }} className={`transition-colors ${parseInt(rating) >= star ? 'text-yellow-400' : `text-slate-400 ${readOnly ? '' : 'hover:text-yellow-400'}`}`}><Star size={18} strokeWidth={2.5} fill={parseInt(rating) >= star ? 'currentColor' : 'none'} /></button>))}</div>
-  );
 
   const PriorityRating = ({ priority, onChange, readOnly = false, compact = false }: { priority: string, onChange: (r: string) => void, readOnly?: boolean, compact?: boolean }) => (
     <div className="flex items-center gap-0.5 shrink-0" aria-label={priority ? `Priority ${priority} out of 5` : 'No priority set'}>
@@ -1753,16 +1760,6 @@ const App = () => {
       })}
     </div>
   );
-
-  const priorityCardClass = (priority: string) => {
-    const score = parseInt(priority) || 0;
-    if (score === 5) return 'bg-emerald-50/70 border-emerald-200 hover:border-emerald-300';
-    if (score === 4) return 'bg-lime-50/60 border-lime-200 hover:border-lime-300';
-    if (score === 3) return 'bg-amber-50/50 border-amber-200 hover:border-amber-300';
-    if (score === 2) return 'bg-orange-50/40 border-orange-100 hover:border-orange-200';
-    if (score === 1) return 'bg-rose-50/40 border-rose-100 hover:border-rose-200';
-    return 'bg-white border-slate-100 hover:border-indigo-200';
-  };
 
   const missingPhotoEntries = useMemo(() => {
     const items = [
@@ -1869,15 +1866,15 @@ const App = () => {
   }, [isOwner, isLoading, autoDiaryPhotoSync, diaryPhotoCandidates.length]);
 
   return (
-    <div className={`flex flex-col h-screen bg-slate-50 font-sans text-slate-900 ${isDarkMode ? 'theme-dark' : ''} ${isResizing ? 'cursor-col-resize select-none' : ''}`}>
+    <div className={`tracker-app ${isDarkMode ? 'theme-dark' : ''}`}>
       {showSignIn && !isOwner && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[400] flex items-center justify-center p-4">
+        <div role="dialog" aria-modal="true" aria-label="Owner sign in" className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[400] flex items-center justify-center p-4">
           <div className="bg-white p-8 rounded-3xl shadow-2xl w-full max-w-md space-y-6 border border-slate-100 text-center">
-            <button onClick={() => { setShowSignIn(false); setPwInput(''); }} className="absolute top-5 right-5 sm:static sm:float-right p-2 rounded-full text-slate-400 hover:bg-slate-100" aria-label="Close sign in"><X size={20} /></button>
+            <button onClick={() => { setShowSignIn(false); setPwInput(''); }} className="secondary-button float-right" aria-label="Close sign in">Close</button>
             <div className={`w-16 h-16 mx-auto rounded-2xl flex items-center justify-center ${lockoutUntil ? 'bg-red-50 text-red-600' : 'bg-indigo-50 text-indigo-600'}`}>{lockoutUntil ? <X size={32} /> : <Lock size={32} />}</div>
             <div className="space-y-1"><h2 className="text-2xl font-bold text-slate-900">Owner sign in</h2><p className="text-slate-500">{lockoutUntil ? `Try again in ${countdown}s` : 'Enter the password to make changes.'}</p></div>
             <form onSubmit={(e) => { e.preventDefault(); if (!pwInput || lockoutUntil) return; localStorage.setItem('todo_tracker_pw', pwInput); setAppPassword(pwInput); }} className="space-y-4">
-              <input type="password" disabled={!!lockoutUntil} value={pwInput} onChange={(e) => setPwInput(e.target.value)} placeholder="Password" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" autoFocus />
+              <input type="password" aria-label="Password" disabled={!!lockoutUntil} value={pwInput} onChange={(e) => setPwInput(e.target.value)} placeholder="Password" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" autoFocus />
               {isAuthError && lockoutUntil && <p className="text-sm text-red-600">That password was not accepted.</p>}
               <button type="submit" disabled={!!lockoutUntil} className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 flex items-center justify-center gap-2 disabled:opacity-50"><LogIn size={20} /> Sign in</button>
             </form>
@@ -1885,28 +1882,29 @@ const App = () => {
         </div>
       )}
       {isOwner && showDebugPanel && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[410] flex items-center justify-center p-2 sm:p-4">
+        <div role="dialog" aria-modal="true" aria-label="Settings" className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[410] flex items-center justify-center p-2 sm:p-4">
           <div className="bg-white rounded-2xl sm:rounded-3xl shadow-2xl w-full max-w-3xl max-h-[calc(100dvh-1rem)] sm:max-h-[90vh] flex flex-col overflow-hidden">
             <div className="p-4 sm:p-5 border-b flex items-center justify-between shrink-0">
               <div>
                 <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2"><Settings size={20} className="text-indigo-600" /> Settings & diagnostics</h3>
                 <p className="text-xs text-slate-500 mt-1">{missingPhotoEntries.length} photo{missingPhotoEntries.length === 1 ? '' : 's'} missing a taken date</p>
               </div>
-              <button onClick={() => setShowDebugPanel(false)} className="p-2 text-slate-400 hover:text-slate-700"><X size={20} /></button>
+              <button type="button" onClick={() => setShowDebugPanel(false)} className="secondary-button">Close</button>
             </div>
             <div className="p-4 sm:p-5 overflow-y-auto space-y-4">
+              <div className="flex items-center justify-between gap-3 p-3 border border-slate-200 rounded-xl"><span className="text-sm text-slate-600">Signed in to your tracker</span><button type="button" onClick={() => { setShowDebugPanel(false); signOut(); }} className="secondary-button"><LogOut size={16} />Sign out</button></div>
               <div className="p-4 rounded-2xl border border-indigo-200 bg-indigo-50/40 space-y-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <h4 className="text-sm font-bold text-slate-800 flex items-center gap-2"><BookOpen size={16} className="text-indigo-600" /> Diary sync from photos</h4>
-                    <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">Uses each photo's EXIF taken date to fill missing diary visits. One entry is created per saved location per day, and existing manual entries are left alone.</p>
+                    <p className="text-xs text-slate-500 mt-1 leading-relaxed">Uses each photo's EXIF taken date to fill missing diary visits. One entry is created per saved location per day, and existing manual entries are left alone.</p>
                   </div>
-                  <span className="shrink-0 px-2 py-1 rounded-full bg-white border border-indigo-100 text-[10px] font-black text-indigo-600">{diaryPhotoCandidates.length} ready</span>
+                  <span className="shrink-0 px-2 py-1 rounded-full bg-white border border-indigo-100 text-xs font-semibold text-indigo-600">{diaryPhotoCandidates.length} ready</span>
                 </div>
                 <label className="flex items-center justify-between gap-4 cursor-pointer">
                   <div>
                     <p className="text-xs font-bold text-slate-700">Automatic photo diary sync</p>
-                    <p className="text-[10px] text-slate-400 mt-0.5">Runs after tracker data loads while you are signed in.</p>
+                    <p className="text-xs text-slate-400 mt-0.5">Runs after tracker data loads while you are signed in.</p>
                   </div>
                   <input type="checkbox" checked={autoDiaryPhotoSync} onChange={event => setAutoDiaryPhotoSync(event.target.checked)} className="accent-indigo-600 w-4 h-4 shrink-0" />
                 </label>
@@ -1923,8 +1921,8 @@ const App = () => {
 
               <div className="pt-1">
                 <div className="flex items-center justify-between gap-3 mb-3">
-                  <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400">Photo EXIF diagnostics</h4>
-                  <span className="text-[10px] text-slate-400">{missingPhotoEntries.length} missing taken date{missingPhotoEntries.length === 1 ? '' : 's'}</span>
+                  <h4 className="text-xs font-semibold tracking-wide text-slate-400">Photo EXIF diagnostics</h4>
+                  <span className="text-xs text-slate-400">{missingPhotoEntries.length} missing taken date{missingPhotoEntries.length === 1 ? '' : 's'}</span>
                 </div>
               {missingPhotoEntries.length === 0 ? (
                 <div className="py-12 text-center text-sm font-semibold text-slate-500">All photos have a taken date.</div>
@@ -1934,7 +1932,7 @@ const App = () => {
                     <img src={photo.url} alt="" className="w-20 h-20 rounded-xl object-cover bg-slate-100 shrink-0" />
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-bold text-slate-800 truncate">{item.name}</p>
-                      <p className="text-[11px] text-slate-500 truncate">{item.address}</p>
+                      <p className="text-xs text-slate-500 truncate">{item.address}</p>
                       <div className="mt-2 flex flex-wrap items-center gap-2">
                         <button
                           disabled={debugCheckingUrl === photo.url}
@@ -1949,18 +1947,18 @@ const App = () => {
                               setDebugCheckingUrl(null);
                             }
                           }}
-                          className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-[11px] font-bold disabled:opacity-50"
+                          className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-bold disabled:opacity-50"
                         >
                           {debugCheckingUrl === photo.url ? 'Checking…' : 'Check EXIF'}
                         </button>
                         <button
                           onClick={() => { setActivePhotoItem(item); setShowDebugPanel(false); }}
-                          className="px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-600 text-[11px] font-bold"
+                          className="px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-600 text-xs font-bold"
                         >
                           Open photos
                         </button>
                       </div>
-                      {debugPhotoResults[photo.url] && <p className="mt-2 text-[10px] text-slate-500 break-words">{debugPhotoResults[photo.url]}</p>}
+                      {debugPhotoResults[photo.url] && <p className="mt-2 text-xs text-slate-500 break-words">{debugPhotoResults[photo.url]}</p>}
                     </div>
                   </div>
                 ))
@@ -2006,23 +2004,23 @@ const App = () => {
         />
       )}
       {isOwner && showDiaryDialog && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[120] flex items-center justify-center p-3 sm:p-4">
+        <div role="dialog" aria-modal="true" aria-label="Add diary entry" className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[120] flex items-center justify-center p-3 sm:p-4">
           <div className="bg-white rounded-2xl w-full max-w-lg max-h-[92vh] overflow-y-auto shadow-2xl p-5 sm:p-6 space-y-4">
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2"><BookOpen size={20} className="text-indigo-600" /> Add Diary Entry</h3>
                 <p className="text-xs text-slate-500 mt-1">Record today or catch up on an earlier day.</p>
               </div>
-              <button onClick={resetDiaryDialog} className="p-2 text-slate-400 hover:text-slate-700"><X size={20} /></button>
+              <button type="button" onClick={resetDiaryDialog} className="secondary-button">Close</button>
             </div>
 
             <label className="block">
-              <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Date</span>
+              <span className="text-xs font-semibold tracking-wide text-slate-400">Date</span>
               <input type="date" value={diaryDate} max={format(new Date(), 'yyyy-MM-dd')} onChange={event => setDiaryDate(event.target.value)} className="mt-1 w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500" />
             </label>
 
             <div>
-              <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Location</span>
+              <span className="text-xs font-semibold tracking-wide text-slate-400">Location</span>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 mt-1 p-1 bg-slate-100 rounded-xl">
                 {([
                   { id: 'existing', label: 'Tracker' },
@@ -2030,7 +2028,7 @@ const App = () => {
                   { id: 'current', label: 'Current' },
                   { id: 'none', label: 'No location' }
                 ] as const).map(option => (
-                  <button key={option.id} onClick={() => { setDiarySource(option.id); setDiaryPlace(null); setDiarySearch(''); setDiarySearchResults([]); }} className={`px-2 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all ${diarySource === option.id ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}>{option.label}</button>
+                  <button key={option.id} onClick={() => { setDiarySource(option.id); setDiaryPlace(null); setDiarySearch(''); setDiarySearchResults([]); }} className={`px-2 py-2 rounded-lg text-xs font-semibold tracking-wide transition-all ${diarySource === option.id ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}>{option.label}</button>
                 ))}
               </div>
             </div>
@@ -2043,8 +2041,8 @@ const App = () => {
                     .filter(item => item.scope === activeScope && (!diarySearch.trim() || `${item.name} ${item.address}`.toLowerCase().includes(diarySearch.toLowerCase())))
                     .map(item => (
                       <button key={`${item.type}:${item.id}`} onClick={() => chooseDiaryPlace(item)} className={`w-full p-2.5 rounded-xl border text-left flex items-center justify-between gap-2 ${diaryPlace?.id === item.id && diaryPlace?.type === item.type ? 'bg-indigo-50 border-indigo-300' : 'bg-white border-slate-100 hover:border-indigo-200'}`}>
-                        <span className="min-w-0"><span className="block text-xs font-bold text-slate-800 truncate">{item.name}</span><span className="block text-[10px] text-slate-400 truncate">{item.address}</span></span>
-                        <span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded-full shrink-0 ${item.status === 'Visited' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>{item.status}</span>
+                        <span className="min-w-0"><span className="block text-xs font-bold text-slate-800 truncate">{item.name}</span><span className="block text-xs text-slate-400 truncate">{item.address}</span></span>
+                        <span className={`text-xs font-semibold uppercase px-1.5 py-0.5 rounded-full shrink-0 ${item.status === 'Visited' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>{item.status}</span>
                       </button>
                     ))}
                 </div>
@@ -2061,7 +2059,7 @@ const App = () => {
                   {diarySearchResults.map((result, index) => (
                     <button key={index} onClick={() => chooseDiaryPlace({ id: '', type: '', name: result.display_name.split(',')[0], address: result.display_name, lat: Number(result.lat), lng: Number(result.lon), status: '' })} className="w-full p-2.5 rounded-xl border border-slate-100 hover:border-indigo-200 text-left">
                       <span className="block text-xs font-bold text-slate-800 truncate">{result.display_name.split(',')[0]}</span>
-                      <span className="block text-[10px] text-slate-400 truncate">{result.display_name}</span>
+                      <span className="block text-xs text-slate-400 truncate">{result.display_name}</span>
                     </button>
                   ))}
                 </div>
@@ -2077,16 +2075,16 @@ const App = () => {
             {diaryPlace && (
               <div className="p-3 bg-indigo-50 border border-indigo-100 rounded-xl">
                 <p className="text-xs font-bold text-indigo-800">{diaryPlace.name}</p>
-                <p className="text-[10px] text-indigo-500 truncate mt-0.5">{diaryPlace.address}</p>
+                <p className="text-xs text-indigo-500 truncate mt-0.5">{diaryPlace.address}</p>
               </div>
             )}
 
             <label className="block">
-              <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">What did you do?</span>
+              <span className="text-xs font-semibold tracking-wide text-slate-400">What did you do?</span>
               <input value={diaryTitle} onChange={event => setDiaryTitle(event.target.value)} placeholder="e.g. Museum of the Weird" className="mt-1 w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-indigo-500" />
             </label>
             <label className="block">
-              <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Memory or notes</span>
+              <span className="text-xs font-semibold tracking-wide text-slate-400">Memory or notes</span>
               <textarea value={diaryNotes} onChange={event => setDiaryNotes(event.target.value)} placeholder="Anything worth remembering..." className="mt-1 w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm h-24 resize-none outline-none focus:ring-2 focus:ring-indigo-500" />
             </label>
 
@@ -2104,92 +2102,76 @@ const App = () => {
         </div>
       )}
       {lightboxState && (<Lightbox urls={lightboxState.urls} initialIndex={lightboxState.index} onClose={() => setLightboxState(null)} />)}
-      <header className="p-3 sm:p-4 bg-white border-b flex flex-col gap-3 shrink-0 z-10">
-        <div className="flex items-center justify-between">
-          <h1 className="text-lg sm:text-xl font-bold text-indigo-600">TODO Tracker</h1>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setIsDarkMode(current => !current)}
-              className="h-8 w-8 shrink-0 flex items-center justify-center rounded-xl text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors"
-              title={isDarkMode ? 'Use light mode' : 'Use dark mode'}
-              aria-label={isDarkMode ? 'Use light mode' : 'Use dark mode'}
-              aria-pressed={isDarkMode}
-            >
-              {isDarkMode ? <Sun size={16} /> : <Moon size={16} />}
-            </button>
-            {!isOwner && <span className="hidden md:flex h-8 items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 bg-slate-100 px-2.5 rounded-lg"><Eye size={14} /> View only</span>}
-            {isOwner ? (
-              <>
-                <button onClick={() => { setFilter('Trips'); setIsJourneyMode(true); setSelectedJourneyPlaces([]); setJourneyName(''); setTripType('ordered'); setJourneySortMode('shortest'); setActiveRouteId(null); if (windowWidth < 640) setView('list'); }} className="h-8 flex items-center gap-2 bg-indigo-600 text-white px-3 rounded-xl text-xs font-bold hover:bg-indigo-700 transition-all shadow-md active:scale-95"><Navigation size={14} fill="currentColor" /><span className="hidden sm:inline">New Trip</span></button>
-                <button onClick={() => setShowDebugPanel(true)} className="h-8 flex items-center gap-1.5 px-3 rounded-xl text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200" title="Settings and diagnostics"><Settings size={14} /><span className="hidden sm:inline">Settings</span>{missingPhotoEntries.length > 0 && <span className="ml-0.5 min-w-4 h-4 px-1 rounded-full bg-amber-100 text-amber-700 text-[9px] flex items-center justify-center">{missingPhotoEntries.length}</span>}</button>
-                <button onClick={signOut} className="h-8 flex items-center gap-1.5 px-3 rounded-xl text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200" title="Sign out"><LogOut size={14} /><span className="hidden sm:inline">Sign out</span></button>
-              </>
-            ) : (
-              <button onClick={() => { setIsAuthError(false); setShowSignIn(true); }} className="h-8 flex items-center gap-1.5 px-3 rounded-xl text-xs font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100"><LogIn size={14} /> Owner sign in</button>
-            )}
+      {isOwner && showAddPlace && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[150] flex items-center justify-center p-3 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="add-place-heading">
+          <section className="add-place-dialog bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90dvh] overflow-y-auto p-5 sm:p-6 space-y-5">
+            <div className="flex justify-between items-center gap-3"><h2 id="add-place-heading" className="text-xl font-bold">Add place</h2><button type="button" className="secondary-button" onClick={() => { if (pendingPlace) { setPendingPlace(null); setPendingDetails(''); } else { setShowAddPlace(false); setSearchResults([]); setSearchQuery(''); } }}>{pendingPlace ? 'Back to search' : 'Close'}</button></div>
+            {!pendingPlace ? <>
+              <form onSubmit={async (event) => {
+                event.preventDefault(); if (!searchQuery.trim()) return;
+                setIsSearching(true);
+                try {
+                  const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}${SCOPE_CONFIG[activeScope].searchParams}`);
+                  if (!response.ok) throw new Error('Search failed');
+                  setSearchResults(await response.json());
+                } catch { setToastMessage('Could not search for that place. Please try again.'); }
+                finally { setIsSearching(false); }
+              }} className="space-y-3">
+                <label className="place-field"><span>Name or address in {activeScope}</span><input autoFocus type="search" aria-label="Search for a new place" value={searchQuery} onChange={event => setSearchQuery(event.target.value)} placeholder="e.g. Museum of the Weird" /></label>
+                <button type="submit" className="primary-button w-full" disabled={isSearching || !searchQuery.trim()}>{isSearching ? <Loader2 size={18} className="animate-spin" /> : <Search size={18} />}Search places</button>
+              </form>
+              <div className="space-y-2">{searchResults.map((result, index) => <button key={index} type="button" onClick={() => { setPendingPlace(result); setPendingName(result.display_name.split(',')[0]); setPendingDetails(''); }} className="search-result"><strong>{result.display_name.split(',')[0]}</strong><span>{result.display_name.split(',').slice(1).join(',')}</span></button>)}</div>
+            </> : <>
+              <p className="text-sm text-slate-500">{pendingPlace.display_name}</p>
+              <label className="place-field"><span>Name</span><input value={pendingName} onChange={event => setPendingName(event.target.value)} /></label>
+              <label className="place-field"><span>Details</span><textarea value={pendingDetails} onChange={event => setPendingDetails(event.target.value)} placeholder="What makes this place worth a visit?" /></label>
+              <div className="space-y-2"><p className="text-sm font-semibold">Choose a category to save</p><div className="grid grid-cols-2 gap-2">{placeCategories.filter(category => category !== 'All').map(category => <button key={category} type="button" className="secondary-button" disabled={isAdding} onClick={() => category === 'Events' ? setShowEventDateDialog(true) : addPlace(category)}>{isAdding && <Loader2 size={16} className="animate-spin" />}{category}</button>)}</div></div>
+            </>}
+          </section>
+        </div>
+      )}
+      <div className="tracker-workspace">
+        <TrackerNavigation activeSection={activeSection} onNavigate={navigateSection} counts={sectionCounts} isOwner={isOwner} isDarkMode={isDarkMode} onToggleTheme={() => setIsDarkMode(current => !current)} onSettings={() => setShowDebugPanel(true)} onSignIn={() => { setIsAuthError(false); setShowSignIn(true); }} onSignOut={signOut} />
+        <div className="tracker-body">
+          <header className="tracker-topbar">
+            <h1>{activeSection}</h1>
+            <div className="topbar-actions">
+              <label className="scope-picker"><MapPin size={16} /><select aria-label="Tracker region" value={activeScope} onChange={event => { setActiveScope(event.target.value as ScopeName); setActiveRouteId(null); setMapTarget(null); setHoveredId(null); setSelectedMapId(null); setIsJourneyMode(false); }} >{SCOPE_NAMES.map(scope => <option key={scope} value={scope}>{SCOPE_CONFIG[scope].label}</option>)}</select><ChevronDown size={14} /></label>
+              <button type="button" className="mobile-utility icon-button" onClick={() => setIsDarkMode(current => !current)} aria-label={isDarkMode ? 'Use light mode' : 'Use dark mode'}>{isDarkMode ? <Sun size={18} /> : <Moon size={18} />}</button>
+              {isOwner ? <button type="button" className="mobile-utility icon-button" onClick={() => setShowDebugPanel(true)} aria-label="Settings"><Settings size={18} /></button> : <button type="button" className="mobile-utility icon-button" onClick={() => { setIsAuthError(false); setShowSignIn(true); }} aria-label="Owner sign in"><LogIn size={18} /></button>}
+            </div>
+          </header>
+          <div className="workspace-toolbar">
+            <label className="collection-search"><Search size={18} /><input type="search" value={listSearch} onChange={event => setListSearch(event.target.value)} aria-label={`Search ${activeSection.toLowerCase()}`} placeholder={activeSection === 'Places' || activeSection === 'Nearby' ? 'Search your places…' : `Search ${activeSection.toLowerCase()}…`} />{listSearch && <button type="button" onClick={() => setListSearch('')} aria-label="Clear search"><X size={16} /></button>}</label>
+            <div className="toolbar-actions">
+              <div className="view-switch" role="group" aria-label="Layout">{[{ id: 'list', icon: List, label: 'List' }, ...(windowWidth >= 900 ? [{ id: 'split', icon: Columns2, label: 'Split' }] : []), { id: 'map', icon: MapIcon, label: 'Map' }].map(({ id, icon: Icon, label }) => <button key={id} type="button" onClick={() => setView(id)} className={view === id || (windowWidth < 900 && view === 'split' && id === 'list') ? 'is-active' : ''} aria-label={`${label} view`} aria-pressed={view === id || (windowWidth < 900 && view === 'split' && id === 'list')}><Icon size={17} /><span>{label}</span></button>)}</div>
+              {isOwner && activeSection !== 'Pins' && !isJourneyMode && <button type="button" className="primary-button collection-add" onClick={() => { if (activeSection === 'Trips') createTrip(); else if (activeSection === 'Diary') setShowDiaryDialog(true); else setShowAddPlace(true); }}><Plus size={18} /><span>{activeSection === 'Trips' ? 'New trip' : activeSection === 'Diary' ? 'Add entry' : 'Add place'}</span></button>}
+            </div>
           </div>
-        </div>
-        <div className="flex overflow-x-auto no-scrollbar bg-slate-100 p-1 rounded-lg self-start max-w-full">
-          {SCOPE_NAMES.map(scope => (
-            <button
-              key={scope}
-              onClick={() => { setActiveScope(scope); setFilter('All'); setActiveRouteId(null); setMapTarget(null); }}
-              className={`px-3 py-1 rounded-md text-xs sm:text-sm font-bold whitespace-nowrap transition-all ${activeScope === scope ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}
-            >
-              {SCOPE_CONFIG[scope].label}
-            </button>
-          ))}
-        </div>
-        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
-          <Filter size={16} className="text-slate-400 shrink-0" />{categories.map(cat => (<button key={cat} onClick={() => { setFilter(cat); if (cat === 'Nearby' && !nearbyLocation) locateNearby(); }} className={`px-3 py-1.5 rounded-full text-xs sm:text-sm font-medium whitespace-nowrap transition-all ${filter === cat ? 'bg-indigo-600 text-white ring-2 ring-indigo-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>{cat}</button>))}
-        </div>
-      </header>
-      <main className="flex-1 flex overflow-hidden relative pb-[60px] sm:pb-0">
-        {error && <div className="absolute top-0 left-0 right-0 bg-red-500 text-white p-2 text-center text-xs z-50">{error}</div>}
-        <div style={{ width: `${effectiveSidebarWidth}%` }} className={`overflow-y-auto p-3 sm:p-4 space-y-6 shrink-0 ${view === 'map' ? 'hidden sm:block sm:!w-0' : 'block'}`}>
-          {isOwner && filter !== 'Diary' && <section className="space-y-3">
-            <h2 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Add New Place</h2>
-            <form onSubmit={async (e) => { e.preventDefault(); if (!searchQuery) return; setIsSearching(true); try { const scopeConfig = SCOPE_CONFIG[activeScope]; const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}${scopeConfig.searchParams}`; const res = await fetch(url); setSearchResults(await res.json()); } finally { setIsSearching(false); } }} className="relative">
-              <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search..." className="w-full pl-10 pr-10 py-2.5 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm text-sm" />
-              <div className="absolute left-3 top-2.5 text-slate-400">{isSearching ? <Loader2 size={18} className="animate-spin text-indigo-500" /> : <Search size={18} />}</div>
-            </form>
-            {searchResults.length > 0 && (<div className="bg-white border border-slate-200 rounded-lg shadow-lg max-h-60 overflow-y-auto divide-y">{searchResults.map((r, i) => (<button key={i} onClick={() => { setPendingPlace(r); setPendingName(r.display_name.split(',')[0]); }} className="w-full text-left p-3 hover:bg-slate-50 flex flex-col gap-0.5"><span className="font-semibold text-sm line-clamp-1">{r.display_name.split(',')[0]}</span><span className="text-xs text-slate-500 line-clamp-1">{r.display_name.split(',').slice(1).join(',')}</span></button>))}</div>)}
-            {pendingPlace && (
-              <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-                <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl animate-in zoom-in duration-200 text-center">
-                  <h3 className="text-lg font-bold mb-4">Add Place</h3>
-                  <input type="text" value={pendingName} onChange={(e) => setPendingName(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border rounded-xl mb-3 outline-none focus:ring-2 focus:ring-indigo-500 text-sm font-semibold" placeholder="Name" />
-                  <textarea value={pendingDetails} onChange={(e) => setPendingDetails(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border rounded-xl mb-4 outline-none focus:ring-2 focus:ring-indigo-500 text-sm h-20 resize-none" placeholder="Details" />
-                  <div className="grid grid-cols-2 gap-2">{['Food', 'Drinks', 'Activities', 'Shopping', 'Sport', 'Events', 'Hotels', 'Other'].map(cat => (<button key={cat} disabled={isAdding} onClick={() => cat === 'Events' ? setShowEventDateDialog(true) : addPlace(cat)} className="py-2 bg-slate-50 hover:bg-indigo-600 hover:text-white rounded-xl text-sm font-medium transition-all border border-slate-100 flex items-center justify-center gap-2">{isAdding && <Loader2 size={14} className="animate-spin" />}{cat}</button>))}</div>
-                  <button onClick={() => { setPendingPlace(null); setShowEventDateDialog(false); }} className="mt-4 text-slate-400 text-sm font-medium">Cancel</button>
-                </div>
-              </div>
-            )}
-          </section>}
-          {filter === 'Diary' ? (
+          {(activeSection === 'Places' || activeSection === 'Nearby') && <div className="collection-filters">
+            {activeSection === 'Places' && <div className="status-switch" role="group" aria-label="Visit status">{[{ id: 'TODO', label: 'To do', count: toDoCount }, { id: 'Visited', label: 'Visited', count: visitedCount }, { id: 'All', label: 'All', count: scopedItems.length }].map(option => <button key={option.id} type="button" onClick={() => setFilter(option.id)} className={filter === option.id ? 'is-active' : ''} aria-pressed={filter === option.id}>{option.label}<span>{option.count}</span></button>)}</div>}
+            <label className="category-picker"><Filter size={15} /><select aria-label="Place category" value={placeCategory} onChange={event => setPlaceCategory(event.target.value)}>{placeCategories.map(category => <option key={category} value={category}>{category === 'All' ? 'All categories' : category}</option>)}</select></label>
+          </div>}
+          <main className="tracker-main">
+            {error && <div role="alert" className="tracker-error">{error}<button type="button" onClick={() => setError(null)} aria-label="Dismiss error"><X size={16} /></button></div>}
+            <div ref={listPanelRef} style={{ width: `${effectiveSidebarWidth}%` }} data-view={view} className={`collection-panel ${view === 'map' ? 'is-hidden' : ''}`}>
+          {isLoading ? <div className="collection-empty" role="status"><Loader2 size={28} className="animate-spin" /><p>Loading your tracker…</p></div> : filter === 'Diary' ? (
             <section className="space-y-5">
-              <div className="flex items-center justify-between px-1">
-                <div>
-                  <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Diary</h2>
-                  <p className="text-[10px] text-slate-400 mt-1">Memories and places from your days.</p>
-                </div>
-                {isOwner && <button onClick={() => setShowDiaryDialog(true)} className="flex items-center gap-1.5 text-[10px] font-black text-indigo-600 bg-indigo-50 px-2.5 py-1.5 rounded-lg hover:bg-indigo-100 uppercase tracking-wider"><Plus size={14} strokeWidth={3} /> Add Entry</button>}
-              </div>
+              <p className="collection-caption">{Object.values(diaryGroups).flat().length} entries · Most recent first</p>
               {Object.keys(diaryGroups).length === 0 ? (
                 <div className="text-center py-12 text-slate-400 bg-white rounded-2xl border border-slate-100">
                   <BookOpen size={36} className="mx-auto mb-3 opacity-20" />
-                  <p className="text-sm font-medium">No diary entries for {activeScope} yet.</p>
+                  <p className="text-sm font-medium">{listSearch ? 'No diary entries match your search.' : `No diary entries for ${activeScope} yet.`}</p>
                 </div>
               ) : Object.entries(diaryGroups).map(([date, entries]) => (
                 <div key={date} className="space-y-2">
-                  <h3 className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.16em] px-1">{format(parseISO(date), 'EEEE, d MMMM yyyy')}</h3>
+                  <h3 className="text-xs font-semibold text-indigo-400 uppercase tracking-[0.16em] px-1">{format(parseISO(date), 'EEEE, d MMMM yyyy')}</h3>
                   {entries.map(entry => (
-                    <div key={entry.id} onClick={() => { if (entry.lat && entry.lng) setMapTarget({ center: [entry.lat, entry.lng], zoom: 16 }); }} className={`bg-white p-4 rounded-2xl border border-slate-100 shadow-sm ${entry.lat && entry.lng ? 'cursor-pointer hover:border-indigo-200' : ''}`}>
+                    <div key={entry.id} className={`bg-white p-4 rounded-2xl border border-slate-100 shadow-sm ${entry.lat && entry.lng ? 'cursor-pointer hover:border-indigo-200' : ''}`}>
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <h4 className="font-bold text-sm text-slate-900">{entry.title}</h4>
-                          {entry.address && <p className="text-[10px] text-indigo-500 mt-1 flex items-center gap-1 truncate"><MapPin size={11} className="shrink-0" /> {entry.address}</p>}
+                          <h4 className="font-bold text-base text-slate-900">{entry.lat && entry.lng ? <button type="button" className="text-left hover:text-indigo-600" onClick={() => locateItem(entry)}>{entry.title}</button> : entry.title}</h4>
+                          {entry.address && <p className="text-xs text-indigo-500 mt-1 flex items-center gap-1 truncate"><MapPin size={11} className="shrink-0" /> {entry.address}</p>}
                         </div>
                         {isOwner && <button onClick={event => { event.stopPropagation(); deleteDiaryEntry(entry); }} className="p-1.5 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-lg" title="Delete diary entry"><Trash2 size={16} /></button>}
                       </div>
@@ -2201,28 +2183,18 @@ const App = () => {
             </section>
           ) : filter === 'Trips' ? (
             <section className="space-y-6">
-              <div className="flex items-center justify-between px-1">
-                <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Trips</h2>
-                {isOwner && !isJourneyMode && (
-                  <button 
-                    onClick={() => { setIsJourneyMode(true); setSelectedJourneyPlaces([]); setJourneyName(''); setTripType('ordered'); setJourneySortMode('shortest'); setActiveRouteId(null); setJourneyFilter('All'); }}
-                    className="flex items-center gap-1.5 text-[10px] font-black text-indigo-600 bg-indigo-50 px-2.5 py-1.5 rounded-lg hover:bg-indigo-100 transition-colors uppercase tracking-wider"
-                  >
-                    <Plus size={14} strokeWidth={3} /> New Trip
-                  </button>
-                )}
-              </div>
-              
+              <p className="collection-caption">{routes.filter(route => route.scope === activeScope && matchesSearch(route)).length} trips · Active trips first</p>
+
               {isJourneyMode && (
-                <div className="bg-indigo-600 p-4 rounded-2xl shadow-lg space-y-4 animate-in slide-in-from-top-4 duration-300">
+                <div className="trip-builder bg-indigo-600 p-4 rounded-2xl shadow-lg space-y-4 animate-in slide-in-from-top-4 duration-300">
                   <div className="flex items-center justify-between">
                     <h3 className="text-white font-bold text-sm flex items-center gap-2"><Navigation size={18} /> Creating Trip</h3>
-                    <button onClick={() => setIsJourneyMode(false)} className="text-white/70 hover:text-white"><X size={20} /></button>
+                    <button type="button" onClick={() => setIsJourneyMode(false)} className="text-white/70 hover:text-white px-2">Cancel</button>
                   </div>
-                  <input 
-                    type="text" 
-                    value={journeyName} 
-                    onChange={(e) => setJourneyName(e.target.value)} 
+                  <input
+                    type="text"
+                    value={journeyName}
+                    onChange={(e) => setJourneyName(e.target.value)}
                     placeholder="Trip name (e.g. Dallas weekend)"
                     className="w-full px-3 py-2.5 bg-white/10 border border-white/20 rounded-xl text-white placeholder:text-white/50 outline-none focus:ring-2 focus:ring-white/30 text-sm"
                   />
@@ -2236,17 +2208,17 @@ const App = () => {
                         onClick={() => setTripType(option.id)}
                         className={`p-2 rounded-lg text-left transition-all ${tripType === option.id ? 'bg-white text-indigo-600 shadow-sm' : 'text-white/60 hover:text-white'}`}
                       >
-                        <span className="block text-[10px] font-black uppercase tracking-wider">{option.label}</span>
-                        <span className="block text-[9px] opacity-70 mt-0.5">{option.description}</span>
+                        <span className="block text-xs font-semibold tracking-wide">{option.label}</span>
+                        <span className="block text-xs opacity-70 mt-0.5">{option.description}</span>
                       </button>
                     ))}
                   </div>
                   <div className="flex gap-1.5 p-1 bg-white/10 rounded-xl">
                     {['All', 'To Do', 'Visited'].map(cat => (
-                      <button 
-                        key={cat} 
+                      <button
+                        key={cat}
                         onClick={() => setJourneyFilter(cat)}
-                        className={`flex-1 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all ${journeyFilter === cat ? 'bg-white text-indigo-600 shadow-sm' : 'text-white/60 hover:text-white'}`}
+                        className={`flex-1 py-1.5 rounded-lg text-xs font-semibold tracking-wide transition-all ${journeyFilter === cat ? 'bg-white text-indigo-600 shadow-sm' : 'text-white/60 hover:text-white'}`}
                       >
                         {cat}
                       </button>
@@ -2260,20 +2232,20 @@ const App = () => {
                       <button
                         key={option.id}
                         onClick={() => setJourneySortMode(option.id as 'shortest' | 'added')}
-                        className={`flex-1 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all ${journeySortMode === option.id ? 'bg-white text-indigo-600 shadow-sm' : 'text-white/60 hover:text-white'}`}
+                        className={`flex-1 py-1.5 rounded-lg text-xs font-semibold tracking-wide transition-all ${journeySortMode === option.id ? 'bg-white text-indigo-600 shadow-sm' : 'text-white/60 hover:text-white'}`}
                       >
                         {option.label}
                       </button>
                     ))}
                   </div>}
                   <div className="space-y-2">
-                    <p className="text-white/70 text-[10px] font-bold uppercase tracking-widest">
+                    <p className="text-white/70 text-xs font-bold tracking-wide">
                       {tripType === 'unordered' ? 'Any order' : journeySortMode === 'shortest' ? 'Start Point + Shortest Path' : 'Order Added'}: {selectedJourneyPlaces.length} places
                     </p>
                     {selectedJourneyPlaces.length === 0 && (
                       <div className="bg-white/10 border border-white/15 rounded-xl p-3 text-white">
-                        <p className="text-xs font-black uppercase tracking-wider">{tripType === 'ordered' ? 'Pick your start point first' : 'Pick places for the trip'}</p>
-                        <p className="text-[10px] text-white/60 mt-1 leading-snug">
+                        <p className="text-xs font-semibold tracking-wide">{tripType === 'ordered' ? 'Pick your start point first' : 'Pick places for the trip'}</p>
+                        <p className="text-xs text-white/60 mt-1 leading-snug">
                           {tripType === 'unordered'
                             ? 'There is no fixed route. Finish places in whichever order suits the day.'
                             : journeySortMode === 'shortest'
@@ -2287,11 +2259,11 @@ const App = () => {
                         {currentRoutePoints.map((p, i) => (
                           <div key={`${p.type}:${p.id}`} className={`flex items-center justify-between p-2 rounded-lg group/item ${tripType === 'ordered' && i === 0 ? 'bg-white text-indigo-700 ring-2 ring-white/40' : 'bg-white/10'}`}>
                             <div className="flex items-center gap-2 min-w-0">
-                              <span className={`text-[10px] font-black w-4 ${tripType === 'ordered' && i === 0 ? 'text-indigo-300' : 'text-white/40'}`}>{tripType === 'ordered' ? i + 1 : '•'}</span>
+                              <span className={`text-xs font-semibold w-4 ${tripType === 'ordered' && i === 0 ? 'text-indigo-300' : 'text-white/40'}`}>{tripType === 'ordered' ? i + 1 : '•'}</span>
                               <span className={`text-xs font-bold truncate ${tripType === 'ordered' && i === 0 ? 'text-indigo-700' : 'text-white'}`}>{p.name}</span>
-                              {tripType === 'ordered' && i === 0 && <span className="text-[8px] font-black uppercase tracking-widest bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full shrink-0">Start</span>}
+                              {tripType === 'ordered' && i === 0 && <span className="text-xs font-semibold tracking-wide bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full shrink-0">Start</span>}
                             </div>
-                            <button 
+                            <button
                               onClick={() => toggleJourneyPlace(`${p.type}:${p.id}`)}
                               className={`transition-colors ${tripType === 'ordered' && i === 0 ? 'text-indigo-300 hover:text-indigo-700' : 'text-white/30 hover:text-white'}`}
                             >
@@ -2302,7 +2274,7 @@ const App = () => {
                       </div>
                     )}
                     <div className="flex gap-2 pt-2">
-                      <button 
+                      <button
                         onClick={saveRoute}
                         disabled={selectedJourneyPlaces.length === 0 || !journeyName || isSavingRoute}
                         className="flex-1 bg-white text-indigo-600 py-2 rounded-xl font-bold text-xs hover:bg-indigo-50 disabled:opacity-50 transition-all flex items-center justify-center gap-1"
@@ -2311,7 +2283,7 @@ const App = () => {
                       </button>
                     </div>
                   </div>
-                  <p className="text-[9px] text-white/50 leading-tight">
+                  <p className="text-xs text-white/50 leading-tight">
                     {tripType === 'unordered'
                       ? 'Unchecked places stay at the top while you are taking the trip.'
                       : journeySortMode === 'shortest'
@@ -2323,24 +2295,26 @@ const App = () => {
 
               {isJourneyMode ? (
                 <div className="space-y-4 pt-4 border-t border-slate-100">
-                  <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Select Locations</h3>
+                  <h3 className="text-xs font-bold text-slate-400 tracking-wide px-1">Select Locations</h3>
                   <div className="space-y-2">
                     {displayItems.map(item => {
                       const itemId = `${item.type}:${item.id}`;
                       const isSelected = selectedJourneyPlaces.includes(itemId);
                       const isStart = tripType === 'ordered' && selectedJourneyPlaces[0] === itemId;
                       return (
-                        <div 
-                          key={itemId} 
+                        <div
+                          key={itemId}
                           onMouseEnter={() => setHoveredId(itemId)}
                           onMouseLeave={() => setHoveredId(null)}
+                          role="checkbox" aria-checked={isSelected} tabIndex={0}
+                          onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggleJourneyPlace(itemId); } }}
                           onClick={() => toggleJourneyPlace(itemId)}
                           className={`p-3 rounded-xl border transition-all cursor-pointer flex justify-between items-center group ${isStart ? 'bg-indigo-600 text-white border-indigo-600 ring-2 ring-indigo-200 shadow-md' : isSelected ? 'bg-indigo-50 border-indigo-300 ring-1 ring-indigo-200' : 'bg-white border-slate-100 hover:border-indigo-100'} ${hoveredId === itemId ? 'translate-x-1 shadow-sm' : ''}`}
                         >
                           <div className="min-w-0 pr-2">
                             <div className="flex items-center gap-2">
-                              <span className={`text-[9px] font-bold uppercase ${isStart ? 'text-white/60' : 'text-slate-400'}`}>{item.category}</span>
-                              {isStart && <span className="text-[8px] font-black uppercase tracking-widest bg-white/15 text-white px-1.5 py-0.5 rounded-full">Start</span>}
+                              <span className={`text-xs font-bold uppercase ${isStart ? 'text-white/60' : 'text-slate-400'}`}>{item.category}</span>
+                              {isStart && <span className="text-xs font-semibold tracking-wide bg-white/15 text-white px-1.5 py-0.5 rounded-full">Start</span>}
                             </div>
                             <h4 className="font-semibold text-xs truncate">{item.name}</h4>
                             <PriorityRating priority={item.priority} readOnly compact onChange={() => {}} />
@@ -2355,19 +2329,18 @@ const App = () => {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {routes.filter(r => r.scope === activeScope).sort((a, b) => ({ active: 0, planned: 1, completed: 2 }[a.status] - { active: 0, planned: 1, completed: 2 }[b.status])).map(route => {
+                  {routes.filter(r => r.scope === activeScope && matchesSearch(r)).sort((a, b) => ({ active: 0, planned: 1, completed: 2 }[a.status] - { active: 0, planned: 1, completed: 2 }[b.status])).map(route => {
                     const remainingIds = route.placeIds.filter(id => !route.completedPlaceIds.includes(id));
                     const completedIds = route.placeIds.filter(id => route.completedPlaceIds.includes(id));
                     const tripItems = getJourneyItems([...remainingIds, ...completedIds]);
                     return <div
                       key={route.id}
-                      onClick={() => setActiveRouteId(activeRouteId === route.id ? null : route.id)}
                       className={`p-4 rounded-xl border transition-all cursor-pointer group ${activeRouteId === route.id ? 'bg-indigo-50 border-indigo-200 ring-1 ring-indigo-200 shadow-sm' : 'bg-white border-slate-100 hover:border-indigo-100'}`}
                     >
                       <div className="flex justify-between items-start">
                         <div className="space-y-1">
-                          <h3 className="font-bold text-sm text-slate-900 group-hover:text-indigo-600 transition-colors">{route.name}</h3>
-                          <div className="flex flex-wrap items-center gap-1.5 text-[9px] font-black uppercase tracking-wider">
+                          <h3 className="font-bold text-base text-slate-900"><button type="button" className="text-left hover:text-indigo-600" aria-expanded={activeRouteId === route.id} onClick={() => setActiveRouteId(activeRouteId === route.id ? null : route.id)}>{route.name}</button></h3>
+                          <div className="flex flex-wrap items-center gap-1.5 text-xs font-semibold tracking-wide">
                             <span className="text-slate-400">{route.completedPlaceIds.length}/{route.placeIds.length} complete</span>
                             <span className="bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full">{route.tripType}</span>
                             <span className={`px-1.5 py-0.5 rounded-full ${route.status === 'completed' ? 'bg-green-100 text-green-700' : route.status === 'active' ? 'bg-indigo-100 text-indigo-700' : 'bg-amber-100 text-amber-700'}`}>{route.status}</span>
@@ -2376,7 +2349,7 @@ const App = () => {
                         <div className="flex items-center gap-2">
                           {isOwner && route.status === 'planned' && <button
                             onClick={(e) => { e.stopPropagation(); startTrip(route); setActiveRouteId(route.id); }}
-                            className="px-2 py-1.5 text-[9px] font-black uppercase tracking-wider text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-all"
+                            className="px-2 py-1.5 text-xs font-semibold tracking-wide text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-all"
                             title="Start Trip"
                           >
                             Start
@@ -2413,24 +2386,24 @@ const App = () => {
                               className={`w-full flex items-center gap-3 text-left rounded-lg p-1.5 transition-colors ${route.status === 'active' ? 'hover:bg-white' : 'cursor-default'} ${isComplete ? 'opacity-55' : ''}`}
                             >
                               <div className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 ${isComplete ? 'bg-green-600 border-green-600 text-white' : 'border-indigo-300 text-indigo-600'}`}>
-                                {isComplete ? <Check size={13} strokeWidth={3} /> : route.tripType === 'ordered' ? <span className="text-[9px] font-black">{orderedPosition}</span> : <Circle size={12} />}
+                                {isComplete ? <Check size={13} strokeWidth={3} /> : route.tripType === 'ordered' ? <span className="text-xs font-semibold">{orderedPosition}</span> : <Circle size={12} />}
                               </div>
                               <div className="min-w-0 flex-1">
                                 <p className={`text-xs font-bold text-slate-700 truncate ${isComplete ? 'line-through' : ''}`}>{p.name}</p>
-                                <p className="text-[10px] text-slate-400 truncate">{p.address}</p>
+                                <p className="text-xs text-slate-400 truncate">{p.address}</p>
                               </div>
                             </button>;
                           })}
-                          {route.status === 'planned' && <p className="text-[10px] text-slate-500 bg-white/70 rounded-lg p-2">Start this trip to check off places.</p>}
-                          {route.status === 'completed' && remainingIds.length > 0 && <p className="text-[10px] text-slate-500 bg-white/70 rounded-lg p-2">{remainingIds.length} unchecked {remainingIds.length === 1 ? 'place remains' : 'places remain'} in To Do.</p>}
+                          {route.status === 'planned' && <p className="text-xs text-slate-500 bg-white/70 rounded-lg p-2">Start this trip to check off places.</p>}
+                          {route.status === 'completed' && remainingIds.length > 0 && <p className="text-xs text-slate-500 bg-white/70 rounded-lg p-2">{remainingIds.length} unchecked {remainingIds.length === 1 ? 'place remains' : 'places remain'} in To Do.</p>}
                         </div>
                       )}
                     </div>
                   })}
-                  {routes.filter(r => r.scope === activeScope).length === 0 && (
+                  {routes.filter(r => r.scope === activeScope && matchesSearch(r)).length === 0 && (
                     <div className="text-center py-10 text-slate-400">
                       <RouteIcon size={32} className="mx-auto mb-3 opacity-20" />
-                      <p className="text-sm font-medium">No trips saved yet.</p>
+                      <p className="text-sm font-medium">{listSearch ? 'No trips match your search.' : 'No trips saved yet.'}</p>
                     </div>
                   )}
                 </div>
@@ -2438,16 +2411,16 @@ const App = () => {
             </section>
           ) : filter === 'Saved' ? (
             <section className="space-y-3">
-              <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest px-1">Key Locations</h2>
+              <p className="collection-caption">Home, work, and other reference points</p>
               <div className="grid grid-cols-1 gap-2">
-                {markers.filter(m => m.scope === activeScope).map(m => (
-                  <div 
-                    key={m.id} 
-                    onClick={() => { 
+                {markers.filter(m => m.scope === activeScope && matchesSearch(m)).map(m => (
+                  <div
+                    key={m.id}
+                    onClick={() => {
                       if (isJourneyMode) { toggleJourneyPlace(`marker:${m.id}`); return; }
-                      const lat = parseFloat(m.lat as any); const lng = parseFloat(m.lng as any); 
-                      if (!isNaN(lat)) { setMapTarget({ center: [lat, lng], zoom: 15 }); if (windowWidth < 640) setView('map'); } 
-                    }} 
+                      const lat = parseFloat(m.lat as any); const lng = parseFloat(m.lng as any);
+                      if (!isNaN(lat)) { setMapTarget({ center: [lat, lng], zoom: 15 }); if (windowWidth < 900) setView('map'); else if (view === 'list') setView('split'); }
+                    }}
                     className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${isJourneyMode && selectedJourneyPlaces.includes(`marker:${m.id}`) ? 'bg-indigo-50 border-indigo-500 ring-2 ring-indigo-200' : 'bg-indigo-50/50 border-indigo-100 hover:bg-indigo-50'}`}
                   >
                     <div className="text-indigo-600">
@@ -2460,13 +2433,12 @@ const App = () => {
                   </div>
                 ))}
               </div>
+              {markers.filter(marker => marker.scope === activeScope && matchesSearch(marker)).length === 0 && <div className="collection-empty"><MapPin size={32} /><h3>{listSearch ? 'No matching pins' : 'No pins in this region'}</h3><p>{listSearch ? 'Try a different name or address.' : 'Your home, work, and other reference points appear here.'}</p></div>}
             </section>
           ) : (
             <section className="space-y-6">
               <div className="space-y-4">
-                <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest px-1">
-                  {filter === 'Hotels' ? 'Hotels' : filter === 'Visited' ? 'Visited' : filter === 'Nearby' ? 'Nearby' : filter === 'All' ? 'All Locations' : filter === 'TODO' ? 'To Do' : filter}
-                </h2>
+                <p className="collection-caption">{displayItems.length} {displayItems.length === 1 ? 'place' : 'places'}{filter === 'Nearby' ? ' · Closest first' : filter === 'Visited' ? ' · Grouped by category' : ' · Highest priority first'}</p>
                 {filter === 'Nearby' && (
                   <div className="p-3 bg-white border border-indigo-100 rounded-xl shadow-sm space-y-3">
                     <div className="flex items-center justify-between gap-3">
@@ -2476,213 +2448,54 @@ const App = () => {
                         </div>
                         <div className="min-w-0">
                           <p className="text-xs font-bold text-slate-700">{nearbyLocation ? 'Closest saved places first' : isNearbyLocating ? 'Finding your location…' : 'Location needed'}</p>
-                          <p className="text-[10px] text-slate-400">{nearbyLocation ? 'Distances update when you refresh your location.' : 'Allow location access to sort your saved places by distance.'}</p>
+                          <p className="text-xs text-slate-400">{nearbyLocation ? 'Distances update when you refresh your location.' : 'Allow location access to sort your saved places by distance.'}</p>
                         </div>
                       </div>
-                      <button type="button" onClick={locateNearby} disabled={isNearbyLocating} className="px-2.5 py-1.5 rounded-lg bg-indigo-50 text-indigo-600 text-[10px] font-black uppercase tracking-wider hover:bg-indigo-100 disabled:opacity-50">
+                      <button type="button" onClick={locateNearby} disabled={isNearbyLocating} className="px-2.5 py-1.5 rounded-lg bg-indigo-50 text-indigo-600 text-xs font-semibold tracking-wide hover:bg-indigo-100 disabled:opacity-50">
                         {nearbyLocation ? 'Refresh' : 'Locate'}
                       </button>
                     </div>
                     <label className="flex items-center justify-between gap-3 cursor-pointer">
-                      <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Show visited places</span>
+                      <span className="text-xs font-semibold tracking-wide text-slate-500">Show visited places</span>
                       <input type="checkbox" checked={nearbyIncludeVisited} onChange={event => setNearbyIncludeVisited(event.target.checked)} className="accent-indigo-600 w-4 h-4" />
                     </label>
                   </div>
                 )}
-                {filter === 'Visited' && (<div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1.5 px-1">{['All', 'Events', 'Food', 'Drinks', 'Activities', 'Shopping', 'Sport', 'Hotels', 'Other'].map(cat => (<button key={cat} onClick={() => setVisitedFilter(cat)} className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase transition-all whitespace-nowrap ${visitedFilter === cat ? 'bg-indigo-100 text-indigo-600 ring-2 ring-indigo-200' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}>{cat}</button>))}</div>)}
               </div>
-              <div className="space-y-4 sm:space-y-2">
-                {filter === 'Visited' ? (
-                  Object.entries(visitedGroups).map(([cat, items]: any) => (
-                    <div key={cat} className="space-y-3">
-                      <h3 className="text-[10px] font-black text-indigo-300 uppercase tracking-[0.2em] px-1 pl-2 border-l-2 border-indigo-100">{cat}</h3>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-2">
-                        {items.map((item: any) => (
-                          <div 
-                            key={`${item.type}:${item.id}`} 
-                            onMouseEnter={() => setHoveredId(`${item.type}:${item.id}`)}
-                            onMouseLeave={() => setHoveredId(null)}
-                            onClick={(e) => { 
-                              if (isJourneyMode) { toggleJourneyPlace(`${item.type}:${item.id}`); return; }
-                              if (!(e.target as HTMLElement).closest('button') && !(e.target as HTMLElement).closest('textarea')) { 
-                                const lat = parseFloat(item.lat); const lng = parseFloat(item.lng); 
-                                if (!isNaN(lat)) { setMapTarget({ center: [lat, lng], zoom: 15 }); if (windowWidth < 640) setView('map'); } 
-                              } 
-                            }} 
-                            className={`p-4 sm:p-3 rounded-xl shadow-sm border transition-all cursor-pointer flex flex-col gap-3 group ${isJourneyMode && selectedJourneyPlaces.includes(`${item.type}:${item.id}`) ? 'bg-indigo-50 border-indigo-500 ring-2 ring-indigo-200' : 'bg-white border-slate-100 hover:border-indigo-200'} ${hoveredId === `${item.type}:${item.id}` ? 'translate-x-1 shadow-md border-indigo-200' : ''}`}
-                          >
-                            <div className="flex justify-between items-center">
-                              <div className="min-w-0 pr-2">
-                                <div className="flex items-center gap-2">
-                                  {isJourneyMode && selectedJourneyPlaces.includes(`${item.type}:${item.id}`) && (
-                                    <span className="bg-indigo-600 text-white text-[8px] font-black px-1.5 py-0.5 rounded-full uppercase tracking-widest">Selected</span>
-                                  )}
-                                  <h3 className={`font-semibold text-base md:text-sm truncate transition-colors ${hoveredId === `${item.type}:${item.id}` ? 'text-indigo-600' : ''}`}>{item.name}</h3>
-                                </div>
-                                {item.details && <p className="text-base md:text-sm text-indigo-500 font-medium italic mt-0.5">{item.details}</p>}
-                                {item.category === 'Events' && item.eventStartDate && <p className="text-xs md:text-[10px] text-rose-600 font-bold mt-1 flex items-center gap-1"><Calendar size={12} /> {formatEventDateRange(item.eventStartDate, item.eventEndDate)}</p>}
-                                <p className="text-sm md:text-[11px] text-slate-500 truncate mt-1">{item.address}</p>
-                              </div>
-                              {isOwner && !isJourneyMode && (
-                                <div className="flex items-center gap-1 shrink-0">
-                                  <button onClick={(e) => { e.stopPropagation(); setEditingItem(item); }} className="p-2 rounded-lg text-slate-300 hover:text-indigo-600 hover:bg-indigo-50" title="Edit location"><Pencil size={18} /></button>
-                                  <button onClick={(e) => { e.stopPropagation(); deletePlace(item); }} className="p-2 rounded-lg text-slate-300 hover:text-red-600 hover:bg-red-50" title="Delete location"><Trash2 size={18} /></button>
-                                  <button onClick={(e) => { e.stopPropagation(); updatePlace(item.id, { status: 'To Do' }, item.type); }} className="p-2 rounded-full text-green-500 bg-green-50"><CheckCircle2 size={28} /></button>
-                                </div>
-                              )}
-                              {isJourneyMode && (
-                                <div className={`p-2 rounded-full transition-colors ${selectedJourneyPlaces.includes(`${item.type}:${item.id}`) ? 'text-indigo-600 bg-indigo-100' : 'text-slate-200'}`}>
-                                  {selectedJourneyPlaces.includes(`${item.type}:${item.id}`) ? <CheckCircle2 size={28} /> : <Circle size={28} />}
-                                </div>
-                              )}
-                            </div>
-                            {!isJourneyMode && (
-                              <div className="pt-3 border-t border-slate-50 space-y-4">
-                                <div className="flex flex-wrap items-end justify-between gap-3">
-                                  <div className="space-y-1"><span className="text-xs font-bold text-slate-400 uppercase">Rating</span><StarRating rating={item.rating} readOnly={!isOwner} onChange={(r) => updatePlace(item.id, { rating: r }, item.type)} /></div>
-                                  <div className="space-y-1"><span className="text-xs font-bold text-slate-400 uppercase">Priority</span><PriorityRating priority={item.priority} readOnly={!isOwner} onChange={(r) => updatePlace(item.id, { priority: r }, item.type)} /></div>
-                                  <div className="flex-1 min-w-[140px] max-w-[180px]"><span className="text-[10px] font-bold text-slate-400 uppercase block mb-1 ml-1">Date Visited</span>{isOwner ? <CustomDatePicker value={item.date || ''} onChange={(d) => updatePlace(item.id, { date: d }, item.type)} /> : <p className="px-3 py-2 text-sm bg-slate-50 rounded-lg text-slate-600">{item.date ? format(parseISO(item.date), 'd MMM yyyy') : 'Not recorded'}</p>}</div>
-                                  <div className="flex items-center gap-1">
-                                    {isOwner && <button
-                                      onClick={(e) => { e.stopPropagation(); setEditingItem(item); }}
-                                      className="p-2 rounded-lg text-slate-300 hover:text-indigo-500 hover:bg-indigo-50"
-                                      title="Edit location"
-                                    >
-                                      <Pencil size={20} />
-                                    </button>}
-                                    {(isOwner || (item.photos && item.photos.split(',').filter(Boolean).length > 0)) && <button
-                                      onClick={(e) => { e.stopPropagation(); setActivePhotoItem(item); }} 
-                                      className={`p-2 rounded-lg ${item.photos && item.photos.split(',').filter(Boolean).length > 0 ? 'bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100' : 'text-slate-300 hover:text-indigo-500 hover:bg-indigo-50'}`}
-                                    >
-                                      <Camera size={20} />
-                                    </button>}
-                                    <button disabled={!isOwner} onClick={(e) => { e.stopPropagation(); if (isOwner) updatePlace(item.id, { return: !(item.return === 'TRUE' || item.return === true) }, item.type); }} className={`p-2 rounded-lg ${(item.return === 'TRUE' || item.return === true) ? 'bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100' : 'text-slate-300'}`} title={(item.return === 'TRUE' || item.return === true) ? 'Would return' : 'No return preference'}><RotateCcw size={20} /></button>
-                                    {isOwner && <button
-                                      onClick={(e) => { e.stopPropagation(); deletePlace(item); }}
-                                      className="p-2 rounded-lg text-slate-300 hover:text-red-600 hover:bg-red-50"
-                                      title="Delete location"
-                                    >
-                                      <Trash2 size={20} />
-                                    </button>}
-                                  </div>
-                                </div>
-                                <textarea readOnly={!isOwner} placeholder="Notes..." defaultValue={item.notes} onClick={(e) => e.stopPropagation()} onBlur={(e) => { if (isOwner && e.target.value !== item.notes) updatePlace(item.id, { notes: e.target.value }, item.type); }} className={`w-full text-sm bg-slate-50 border-none rounded-lg p-3 outline-none transition-all h-20 resize-none ${isOwner ? 'focus:ring-2 focus:ring-indigo-500' : 'cursor-default'}`} />
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <>{displayItems.map(item => (
-                    <div 
-                      key={`${item.type}:${item.id}`} 
-                      onMouseEnter={() => setHoveredId(`${item.type}:${item.id}`)}
-                      onMouseLeave={() => setHoveredId(null)}
-                      onClick={() => { 
-                        if (isJourneyMode) { toggleJourneyPlace(`${item.type}:${item.id}`); return; }
-                        const lat = parseFloat(item.lat as any); const lng = parseFloat(item.lng as any); 
-                        if (!isNaN(lat)) { setMapTarget({ center: [lat, lng], zoom: 15 }); if (windowWidth < 640) setView('map'); } 
-                      }} 
-                      className={`p-4 sm:p-3 rounded-xl shadow-sm border transition-all cursor-pointer flex flex-col gap-3 group ${isJourneyMode && selectedJourneyPlaces.includes(`${item.type}:${item.id}`) ? 'bg-indigo-50 border-indigo-500 ring-2 ring-indigo-200' : priorityCardClass(item.priority)} ${hoveredId === `${item.type}:${item.id}` ? 'translate-x-1 shadow-md' : ''}`}
-                    >
-                      <div className="flex justify-between items-center">
-                        <div className="min-w-0 pr-2">
-                          <div className="flex items-center gap-2">
-                            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{item.category}</span>
-                            {filter === 'Nearby' && nearbyLocation && (
-                              <span className="text-[9px] font-black text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded-full">{(getDistance(nearbyLocation, item) * 0.621371).toFixed(getDistance(nearbyLocation, item) * 0.621371 < 10 ? 1 : 0)} mi</span>
-                            )}
-                            {filter === 'Nearby' && item.status === 'Visited' && (
-                              <span className="text-[8px] font-black uppercase tracking-widest bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">Visited</span>
-                            )}
-                            {isJourneyMode && selectedJourneyPlaces.includes(`${item.type}:${item.id}`) && (
-                              <span className="bg-indigo-600 text-white text-[8px] font-black px-1.5 py-0.5 rounded-full uppercase tracking-widest">Selected</span>
-                            )}
-                          </div>
-                          <h3 className={`font-semibold text-base md:text-sm truncate transition-colors ${hoveredId === `${item.type}:${item.id}` ? 'text-indigo-600' : ''}`}>{item.name}</h3>
-                          {item.details && <p className="text-base md:text-sm text-indigo-500 font-medium italic flex items-center gap-1"><Info size={16}/> {item.details}</p>}
-                          {item.category === 'Events' && item.eventStartDate && <p className="text-[10px] text-rose-600 font-bold flex items-center gap-1 mt-1"><Calendar size={12} /> {formatEventDateRange(item.eventStartDate, item.eventEndDate)}</p>}
-                          <p className="text-sm md:text-[11px] text-slate-500 truncate mt-1">{item.address}</p>
-                          <div className="flex items-center gap-2 mt-2">
-                            <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">Priority</span>
-                            <PriorityRating priority={item.priority} readOnly={!isOwner} compact onChange={(r) => updatePlace(item.id, { priority: r }, item.type)} />
-                          </div>
-                        </div>
-                        {isOwner && !isJourneyMode && (
-                          <div className="flex items-center gap-1 shrink-0">
-                            <button
-                              onClick={(e) => { e.stopPropagation(); setEditingItem(item); }}
-                              className="p-2 rounded-lg text-slate-300 hover:text-indigo-500 hover:bg-indigo-50"
-                              title="Edit location"
-                            >
-                              <Pencil size={18} />
-                            </button>
-                            <button
-                              onClick={(e) => { e.stopPropagation(); deletePlace(item); }}
-                              className="p-2 rounded-lg text-slate-300 hover:text-red-600 hover:bg-red-50"
-                              title="Delete location"
-                            >
-                              <Trash2 size={18} />
-                            </button>
-                            <button 
-                              onClick={(e) => { 
-                                e.stopPropagation(); 
-                                const newStatus = item.status === 'Visited' ? 'To Do' : 'Visited';
-                                updatePlace(item.id, { status: newStatus }, item.type); 
-                              }} 
-                              className={`p-2 rounded-full transition-colors ${item.status === 'Visited' ? 'text-green-500 bg-green-50' : 'text-slate-300 hover:text-indigo-500 hover:bg-indigo-50'}`}
-                            >
-                              {item.status === 'Visited' ? <CheckCircle2 size={28} /> : <Circle size={28} />}
-                            </button>
-                          </div>
-                        )}
-                        {isJourneyMode && (
-                          <div className={`p-2 rounded-full transition-colors ${selectedJourneyPlaces.includes(`${item.type}:${item.id}`) ? 'text-indigo-600 bg-indigo-100' : 'text-slate-200'}`}>
-                            {selectedJourneyPlaces.includes(`${item.type}:${item.id}`) ? <CheckCircle2 size={28} /> : <Circle size={28} />}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))} {(places.length === 0 && hotels.length === 0) && (
-                    <div className="flex items-center justify-center gap-2 py-10 text-indigo-600 text-sm font-semibold">
-                      {isLoading ? (
-                        <>
-                          <Loader2 size={18} className="animate-spin" />
-                          <span>Loading...</span>
-                        </>
-                      ) : (
-                        <span className="text-slate-400 font-normal">Nothing here yet.</span>
-                      )}
-                    </div>
-                  )}</>
-                )}
-              </div>
+              {isLoading ? <div className="collection-empty" role="status"><Loader2 size={28} className="animate-spin" /><p>Loading your places…</p></div> : displayItems.length === 0 ? <div className="collection-empty"><MapPin size={32} /><h3>{listSearch ? 'No matching places' : filter === 'Nearby' && !nearbyLocation ? 'Find what is nearby' : filter === 'Visited' ? 'No visits yet' : 'Nothing here yet'}</h3><p>{listSearch ? 'Try a different name or clear your filters.' : filter === 'Nearby' && !nearbyLocation ? 'Use your location to see saved places around you.' : placeCategory !== 'All' ? `No ${placeCategory.toLowerCase()} places in this view.` : 'Your places in this region will appear here.'}</p>{(listSearch || placeCategory !== 'All') && <button type="button" className="secondary-button" onClick={() => { setListSearch(''); setPlaceCategory('All'); }}>Clear filters</button>}</div> : (
+                (filter === 'Visited' ? Object.entries(visitedGroups) : [['', displayItems]] as [string, (Place & { type: 'place' | 'hotel' })[]][]).map(([category, items]) => <div key={category} className="place-group">
+                  {category && <h3 className="group-heading">{category}<span>{items.length}</span></h3>}
+                  <div className="place-list">{items.map(item => <PlaceCard key={`${item.type}:${item.id}`} item={item} isOwner={isOwner} distance={filter === 'Nearby' && nearbyLocation ? `${(getDistance(nearbyLocation, item) * 0.621371).toFixed(1)} mi` : undefined} eventDates={item.category === 'Events' ? formatEventDateRange(item.eventStartDate, item.eventEndDate) : undefined} onLocate={() => locateItem(item)} onHover={hovered => setHoveredId(hovered ? `${item.type}:${item.id}` : null)} onUpdate={updates => updatePlace(item.id, updates, item.type)} onEdit={() => setEditingItem(item)} onDelete={() => deletePlace(item)} onPhotos={() => setActivePhotoItem(item)} visitDatePicker={<CustomDatePicker value={item.date || ''} onChange={date => updatePlace(item.id, { date }, item.type)} />} />)}</div>
+                </div>)
+              )}
             </section>
           )}
         </div>
-        <div style={{ flex: 1 }} className={`bg-slate-200 relative ${view === 'list' ? 'hidden sm:block' : 'block'} min-w-0`}>
+        <div className={`map-panel ${view === 'list' || (windowWidth < 900 && view !== 'map') ? 'is-hidden' : ''}`} aria-label="Map of saved locations">
           {isLoading && (<div className="absolute inset-0 bg-slate-900/20 backdrop-blur-sm z-[20] flex items-center justify-center p-4"><div className="bg-white px-6 py-3 rounded-2xl shadow-xl flex items-center gap-3 text-indigo-600 font-bold text-sm"><Loader2 size={20} className="animate-spin" /><span>Loading...</span></div></div>)}
-          
+
           {hoveredItem && (
-            <div className="absolute top-4 left-4 right-4 sm:left-auto sm:right-4 sm:w-80 bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl border border-indigo-100 z-[100] p-4 animate-in fade-in slide-in-from-top-2 duration-200 pointer-events-none">
+            <div className={`map-preview absolute top-4 left-4 right-4 sm:left-auto sm:right-4 sm:w-80 bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl border border-indigo-100 z-[100] p-4 ${selectedMapId ? '' : 'pointer-events-none'}`}>
               <div className="flex justify-between items-start mb-2">
                 <div className="min-w-0">
-                  <span className="text-[9px] font-black uppercase tracking-widest text-indigo-500 mb-0.5 block">{(hoveredItem as any).category || (hoveredItem as any).type}</span>
+                  <span className="text-xs font-semibold tracking-wide text-indigo-500 mb-0.5 block">{(hoveredItem as any).category || (hoveredItem as any).type}</span>
                   <h3 className="font-bold text-sm text-slate-900 truncate">{(hoveredItem as any).name}</h3>
                 </div>
-                {(hoveredItem as any).status === 'Visited' && <CheckCircle2 size={16} className="text-green-500 shrink-0" />}
+                {selectedMapId ? <button type="button" className="icon-button shrink-0" aria-label="Close map preview" onClick={() => { setSelectedMapId(null); setHoveredId(null); }}><X size={18} /></button> : (hoveredItem as any).status === 'Visited' && <CheckCircle2 size={16} className="text-green-500 shrink-0" />}
               </div>
-              <p className="text-[10px] text-slate-500 mb-3 truncate">{(hoveredItem as any).address}</p>
+              <p className="text-xs text-slate-500 mb-3 truncate">{(hoveredItem as any).address}</p>
               {(hoveredItem as any).details && <p className="text-sm text-indigo-600 font-medium italic mb-3 bg-indigo-50/50 p-2 rounded-lg leading-relaxed">{(hoveredItem as any).details}</p>}
-              {(hoveredItem as any).category === 'Events' && (hoveredItem as any).eventStartDate && <p className="text-[10px] text-rose-600 font-bold mb-3 flex items-center gap-1"><Calendar size={12} /> {formatEventDateRange((hoveredItem as any).eventStartDate, (hoveredItem as any).eventEndDate)}</p>}
+              {(hoveredItem as any).category === 'Events' && (hoveredItem as any).eventStartDate && <p className="text-xs text-rose-600 font-bold mb-3 flex items-center gap-1"><Calendar size={12} /> {formatEventDateRange((hoveredItem as any).eventStartDate, (hoveredItem as any).eventEndDate)}</p>}
               {(hoveredItem as any).photos && <div className="rounded-xl overflow-hidden mb-3 ring-1 ring-slate-100"><img src={(hoveredItem as any).photos.split(',')[0]} className="w-full h-32 object-cover" alt="" /></div>}
               {(hoveredItem as any).rating && (
                 <div className="flex gap-0.5 text-yellow-500">
                   {Array.from({ length: parseInt((hoveredItem as any).rating) }).map((_, i) => <Star key={i} size={12} fill="currentColor" />)}
                 </div>
               )}
+              {selectedMapId && <div className="flex gap-2 mt-3">
+                <button type="button" className="secondary-button flex-1" onClick={() => { if (hoveredItem.type === 'marker') navigateSection('Pins'); setView('list'); }}>{hoveredItem.type === 'marker' ? 'Show pins' : 'Show in list'}</button>
+                {hoveredItem.type !== 'marker' && (isOwner || (hoveredItem as Place).photos) && <button type="button" className="secondary-button" onClick={() => setActivePhotoItem(hoveredItem as Place)}><Camera size={16} />Photos</button>}
+              </div>}
             </div>
           )}
 
@@ -2693,32 +2506,32 @@ const App = () => {
               subdomains={isDarkMode && cartoApiKey ? 'abcd' : 'abc'}
               maxZoom={20}
             />
-            <MapController 
-              center={mapTarget?.center} 
-              zoom={mapTarget?.zoom} 
+            <MapController
+              center={mapTarget?.center}
+              zoom={mapTarget?.zoom}
               bounds={mapTarget?.bounds}
-              sidebarWidth={effectiveSidebarWidth} 
-              windowWidth={windowWidth} 
-              view={view} 
+              sidebarWidth={effectiveSidebarWidth}
+              windowWidth={windowWidth}
+              view={view}
             />
             {showRouteLine && currentRoutePoints.length > 1 && (
-              <Polyline 
-                positions={currentRoutePoints.map(p => [p.lat, p.lng])} 
-                color="#4f46e5" 
-                weight={4} 
-                opacity={0.6} 
-                dashArray="10, 10" 
+              <Polyline
+                positions={currentRoutePoints.map(p => [p.lat, p.lng])}
+                color="#0f766e"
+                weight={4}
+                opacity={0.6}
+                dashArray="10, 10"
               />
             )}
             {filteredMarkers.map(m => (
-              <Marker 
-                key={m.id} 
-                position={[m.lat, m.lng]} 
+              <Marker
+                key={m.id}
+                position={[m.lat, m.lng]}
                 icon={getMarkerIcon(m.type, m.id)}
                 eventHandlers={{
-                  click: () => { 
+                  click: () => {
                     if (isJourneyMode) toggleJourneyPlace(`marker:${m.id}`);
-                    else setMapTarget({ center: [m.lat, m.lng], zoom: 15 });
+                    else { setSelectedMapId(`marker:${m.id}`); setMapTarget({ center: [m.lat, m.lng], zoom: 15 }); }
                   },
                   mouseover: () => setHoveredId(`marker:${m.id}`),
                   mouseout: () => setHoveredId(null)
@@ -2726,14 +2539,14 @@ const App = () => {
               />
             ))}
             {filteredHotels.filter(h => h.lat && h.lng).map(h => (
-              <Marker 
-                key={h.id} 
-                position={[h.lat, h.lng]} 
+              <Marker
+                key={h.id}
+                position={[h.lat, h.lng]}
                 icon={getHotelIcon(h.id)}
                 eventHandlers={{
-                  click: () => { 
+                  click: () => {
                     if (isJourneyMode) toggleJourneyPlace(`hotel:${h.id}`);
-                    else setMapTarget({ center: [h.lat, h.lng], zoom: 15 });
+                    else { setSelectedMapId(`hotel:${h.id}`); setMapTarget({ center: [h.lat, h.lng], zoom: 15 }); }
                   },
                   mouseover: () => setHoveredId(`hotel:${h.id}`),
                   mouseout: () => setHoveredId(null)
@@ -2741,14 +2554,14 @@ const App = () => {
               />
             ))}
             {filteredPlaces.filter(p => p.lat && p.lng).map(p => (
-              <Marker 
-                key={p.id} 
+              <Marker
+                key={p.id}
                 position={[p.lat, p.lng]}
                 icon={getPlaceIcon(p.id)}
                 eventHandlers={{
-                  click: () => { 
+                  click: () => {
                     if (isJourneyMode) toggleJourneyPlace(`place:${p.id}`);
-                    else setMapTarget({ center: [p.lat, p.lng], zoom: 15 });
+                    else { setSelectedMapId(`place:${p.id}`); setMapTarget({ center: [p.lat, p.lng], zoom: 15 }); }
                   },
                   mouseover: () => setHoveredId(`place:${p.id}`),
                   mouseout: () => setHoveredId(null)
@@ -2769,13 +2582,14 @@ const App = () => {
           </MapContainer>
         </div>
       </main>
-      <nav className="sm:hidden fixed bottom-0 left-0 right-0 bg-white border-t flex items-center justify-around h-[60px] z-[100] px-4"><button onClick={() => setView('list')} className={`flex flex-col items-center gap-1 ${view === 'list' ? 'text-indigo-600' : 'text-slate-400'}`}><List size={20} /><span className="text-[10px] font-bold uppercase">List</span></button>{isOwner && <button onClick={() => { setView('list'); if (filter === 'Diary') setShowDiaryDialog(true); else setTimeout(() => { document.querySelector<HTMLInputElement>('input[type="text"]')?.focus(); }, 50); }} className="flex flex-col items-center justify-center -mt-8 bg-indigo-600 text-white w-14 h-14 rounded-full shadow-lg ring-4 ring-slate-50"><Plus size={24} /></button>}<button onClick={() => setView('map')} className={`flex flex-col items-center gap-1 ${view === 'map' ? 'text-indigo-600' : 'text-slate-400'}`}><MapIcon size={20} /><span className="text-[10px] font-bold uppercase">Map</span></button></nav>
+        </div>
+      </div>
       {toastMessage && <Toast message={toastMessage} onClose={() => setToastMessage(null)} />}
       {confirmationDialog && (
-        <ConfirmationDialog 
-          message={confirmationDialog.message} 
-          onConfirm={() => { confirmationDialog.onConfirm(); setConfirmationDialog(null); }} 
-          onCancel={() => { confirmationDialog.onCancel?.(); setConfirmationDialog(null); }} 
+        <ConfirmationDialog
+          message={confirmationDialog.message}
+          onConfirm={() => { confirmationDialog.onConfirm(); setConfirmationDialog(null); }}
+          onCancel={() => { confirmationDialog.onCancel?.(); setConfirmationDialog(null); }}
         />
       )}
     </div>
