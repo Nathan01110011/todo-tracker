@@ -6,6 +6,11 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import 'leaflet/dist/leaflet.css';
 import TrackerNavigation, { type TrackerSection } from './components/TrackerNavigation';
 import PlaceCard from './components/PlaceCard';
+import PlaceRow from './components/PlaceRow';
+import PlaceCollection from './components/PlaceCollection';
+import PlaceDetailsPanel from './components/PlaceDetailsPanel';
+import CollectionToolbar from './components/CollectionToolbar';
+import { matchesCollectionSearch, sortCollection, sortLabels, type CollectionSort, type CollectionGroup, type CollectionDensity, type PlaceItem } from './lib/collection';
 import type { Place, PhotoDetails } from './types';
 import {
   Check, CheckCircle2, Circle, Map as MapIcon, List, Filter, Home, Briefcase,
@@ -129,47 +134,36 @@ const MapController = ({ center, zoom, sidebarWidth, windowWidth, view, bounds }
   const lastCenterRef = useRef<string | null>(null);
   const lastBoundsRef = useRef<string | null>(null);
 
+  const mapVisible = view === 'map' || (windowWidth >= 900 && view === 'split');
   useEffect(() => {
-    if (bounds && Array.isArray(bounds) && bounds.length === 2) {
-      const boundsKey = JSON.stringify(bounds);
-      if (lastBoundsRef.current === boundsKey) return;
-      lastBoundsRef.current = boundsKey;
-      try {
-        map.fitBounds(bounds, { padding: [50, 50], maxZoom: 16, animate: true });
-      } catch (e) {}
-      return;
-    }
-
-    if (!center || !Array.isArray(center) || center.length !== 2) return;
-    const lat = parseFloat(center[0]);
-    const lng = parseFloat(center[1]);
-    if (isNaN(lat) || isNaN(lng)) return;
-    const centerKey = `${lat},${lng}`;
-    if (lastCenterRef.current === centerKey) return;
-    lastCenterRef.current = centerKey;
-    try {
-      const size = map.getSize();
-      if (size.x === 0 || size.y === 0) {
-        map.invalidateSize();
-        setTimeout(() => {
-          map.flyTo([lat, lng], zoom || map.getZoom() || 12, { duration: 1 });
-        }, 100);
-      } else {
-        map.flyTo([lat, lng], zoom || map.getZoom() || 12, { duration: 1 });
-      }
-    } catch (e) {
-      console.warn("Map movement prevented:", e);
-    }
-  }, [center, zoom, bounds, map]);
-
-  useEffect(() => {
+    if (!mapVisible) { map.stop(); return; }
     const timer = setTimeout(() => {
+      map.invalidateSize({ animate: false });
+      const size = map.getSize();
+      if (size.x <= 0 || size.y <= 0) return;
       try {
-        map.invalidateSize({ animate: true });
-      } catch (e) {}
-    }, 250);
+        if (bounds && Array.isArray(bounds) && bounds.length === 2) {
+          const boundsKey = JSON.stringify(bounds);
+          if (lastBoundsRef.current === boundsKey) return;
+          map.fitBounds(bounds, { padding: [50, 50], maxZoom: 16, animate: true });
+          lastBoundsRef.current = boundsKey;
+          return;
+        }
+        lastBoundsRef.current = null;
+        if (!center || !Array.isArray(center) || center.length !== 2) return;
+        const lat = Number(center[0]), lng = Number(center[1]);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+        const targetZoom = zoom || map.getZoom() || 12;
+        const centerKey = `${lat},${lng},${targetZoom}`;
+        if (lastCenterRef.current === centerKey) return;
+        map.flyTo([lat, lng], targetZoom, { duration: 1 });
+        lastCenterRef.current = centerKey;
+      } catch (error) {
+        console.warn('Map movement prevented:', error);
+      }
+    }, 100);
     return () => clearTimeout(timer);
-  }, [map, sidebarWidth, windowWidth, view]);
+  }, [center, zoom, bounds, map, mapVisible, sidebarWidth, windowWidth, view]);
 
   return null;
 };
@@ -821,16 +815,32 @@ const App = () => {
   const [journeyFilter, setJourneyFilter] = useState('All');
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [selectedMapId, setSelectedMapId] = useState<string | null>(null);
-  const [filter, setFilter] = useState('TODO');
+  const [filter, setFilter] = useState('All');
   const [activeScope, setActiveScope] = useState<ScopeName>('Austin');
   const [placeCategory, setPlaceCategory] = useState('All');
   const [listSearch, setListSearch] = useState('');
+  const [allTrackers, setAllTrackers] = useState(false);
+  const [detailItemId, setDetailItemId] = useState<string | null>(null);
+  const [collectionPreferences, setCollectionPreferences] = useState(() => {
+    let saved: Record<string, string> = {};
+    try { saved = JSON.parse(localStorage.getItem('todo_tracker_collection_v1') || '{}') || {}; } catch { /* Use defaults for older or invalid settings. */ }
+    return {
+      sort: (Object.hasOwn(sortLabels, saved.sort) ? saved.sort : 'name') as CollectionSort,
+      grouping: (['none', 'category', 'tracker', 'alphabet'].includes(saved.grouping) ? saved.grouping : 'none') as CollectionGroup,
+      density: (saved.density === 'cards' ? 'cards' : 'rows') as CollectionDensity,
+    };
+  });
+  const closePlaceDetails = () => {
+    const focused = document.activeElement as HTMLElement | null;
+    if (focused?.closest('.place-panel')) focused.blur();
+    setDetailItemId(null);
+  };
   const [showAddPlace, setShowAddPlace] = useState(false);
   const listPanelRef = useRef<HTMLDivElement>(null);
   const [nearbyLocation, setNearbyLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [nearbyIncludeVisited, setNearbyIncludeVisited] = useState(false);
   const [isNearbyLocating, setIsNearbyLocating] = useState(false);
-  const [view, setView] = useState(window.innerWidth < 900 ? 'list' : 'split');
+  const [view, setView] = useState('list');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [mapTarget, setMapTarget] = useState<any>(null);
@@ -904,7 +914,9 @@ const App = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, [view]);
 
-  const dialogKey = confirmationDialog ? 'confirmation' : editingItem && isOwner ? 'edit' : lightboxState ? 'lightbox' : showDebugPanel && isOwner ? 'settings' : showSignIn && !isOwner ? 'sign-in' : showEventDateDialog && isOwner ? 'event' : showAddPlace && isOwner ? 'add' : activePhotoItem ? 'photos' : showDiaryDialog && isOwner ? 'diary' : '';
+  useEffect(() => { localStorage.setItem('todo_tracker_collection_v1', JSON.stringify(collectionPreferences)); }, [collectionPreferences]);
+
+  const dialogKey = confirmationDialog ? 'confirmation' : editingItem && isOwner ? 'edit' : lightboxState ? 'lightbox' : showDebugPanel && isOwner ? 'settings' : showSignIn && !isOwner ? 'sign-in' : showEventDateDialog && isOwner ? 'event' : showAddPlace && isOwner ? 'add' : activePhotoItem ? 'photos' : showDiaryDialog && isOwner ? 'diary' : detailItemId ? 'place-details' : '';
   useEffect(() => {
     if (!dialogKey) return;
     const previousFocus = document.activeElement as HTMLElement | null;
@@ -923,6 +935,7 @@ const App = () => {
         else if (dialogKey === 'add') { setShowAddPlace(false); setPendingPlace(null); }
         else if (dialogKey === 'photos') setActivePhotoItem(null);
         else if (dialogKey === 'diary') resetDiaryDialog();
+        else if (dialogKey === 'place-details') closePlaceDetails();
       }
       if (event.key === 'Tab') {
         const elements = getFocusables();
@@ -935,7 +948,7 @@ const App = () => {
     return () => { cancelAnimationFrame(frame); document.removeEventListener('keydown', handleKey); if (previousFocus?.isConnected) previousFocus.focus(); };
   }, [dialogKey]);
 
-  useEffect(() => { listPanelRef.current?.scrollTo({ top: 0 }); }, [filter, activeScope, placeCategory]);
+  useEffect(() => { listPanelRef.current?.scrollTo({ top: 0 }); }, [filter, activeScope, allTrackers, placeCategory, listSearch, collectionPreferences.sort, collectionPreferences.grouping]);
 
   useEffect(() => {
     setIsLoading(true);
@@ -966,6 +979,7 @@ const App = () => {
     setPwInput('');
     setIsJourneyMode(false);
     setEditingItem(null);
+    closePlaceDetails();
     setPendingPlace(null);
     setShowAddPlace(false);
     setShowDebugPanel(false);
@@ -1007,6 +1021,7 @@ const App = () => {
         else setPlaces(current => current.filter(p => p.id !== item.id));
         setRoutes(current => current.map(removeFromRoutes));
         setEditingItem(null);
+        closePlaceDetails();
 
         try {
           const response = await fetch('/api/places', {
@@ -1531,18 +1546,26 @@ const App = () => {
 
   const placeCategories = ['All', 'Food', 'Drinks', 'Activities', 'Shopping', 'Sport', 'Events', 'Hotels', 'Other'];
   const activeSection: TrackerSection = filter === 'Saved' ? 'Pins' : filter === 'Nearby' || filter === 'Trips' || filter === 'Diary' ? filter : 'Places';
-  const matchesSearch = (item: { name?: string; title?: string; address?: string; details?: string; notes?: string }) =>
-    [item.name, item.title, item.address, item.details, item.notes].join(' ').toLowerCase().includes(listSearch.trim().toLowerCase());
-  const scopedItems = [...places, ...hotels].filter(item => item.scope === activeScope);
+  const isPlaceCollection = activeSection === 'Places' || activeSection === 'Nearby';
+  const browseAllTrackers = isPlaceCollection && allTrackers;
+  const matchesSearch = (item: Parameters<typeof matchesCollectionSearch>[0]) => matchesCollectionSearch(item, listSearch);
+  const allPlaceItems = useMemo(() => [...places.map(item => ({ ...item, type: 'place' as const })), ...hotels.map(item => ({ ...item, type: 'hotel' as const, category: 'Hotels' }))], [places, hotels]);
+  const scopedItems = useMemo(() => allPlaceItems.filter(item => browseAllTrackers || item.scope === activeScope), [allPlaceItems, browseAllTrackers, activeScope]);
+  const detailItem = allPlaceItems.find(item => `${item.type}:${item.id}` === detailItemId);
+  const categoryCounts = useMemo(() => scopedItems.filter(item => matchesCollectionSearch(item, listSearch) && (filter === 'TODO' ? item.status === 'To Do' : filter === 'Visited' ? item.status === 'Visited' : filter === 'Nearby' ? nearbyIncludeVisited || item.status !== 'Visited' : true)).reduce<Record<string, number>>((counts, item) => { const category = item.category || 'Other'; counts[category] = (counts[category] || 0) + 1; return counts; }, {}), [scopedItems, listSearch, filter, nearbyIncludeVisited]);
+  const resetCollectionFilters = () => { setListSearch(''); setPlaceCategory('All'); if (activeSection === 'Places') setFilter('All'); };
+  const collectionDistance = (item: Place) => (filter === 'Nearby' || collectionPreferences.sort === 'distance') && nearbyLocation && Number.isFinite(item.lat) && Number.isFinite(item.lng) && (item.lat !== 0 || item.lng !== 0) ? `${(getDistance(nearbyLocation, item) * 0.621371).toFixed(1)} mi` : undefined;
   const toDoCount = scopedItems.filter(item => item.status === 'To Do').length;
   const visitedCount = scopedItems.filter(item => item.status === 'Visited').length;
   const sectionCounts = { Places: scopedItems.length, Trips: routes.filter(route => route.scope === activeScope).length, Diary: diaryEntries.filter(entry => entry.scope === activeScope).length, Pins: markers.filter(marker => marker.scope === activeScope).length };
   const navigateSection = (section: TrackerSection) => {
-    setFilter(section === 'Places' ? 'TODO' : section === 'Pins' ? 'Saved' : section);
+    setFilter(section === 'Places' ? 'All' : section === 'Pins' ? 'Saved' : section);
     setListSearch('');
     setPlaceCategory('All');
     setHoveredId(null);
     setSelectedMapId(null);
+    setDetailItemId(null);
+    if (section !== 'Places' && section !== 'Nearby') setAllTrackers(false);
     if (section !== 'Trips') { setIsJourneyMode(false); setActiveRouteId(null); }
     if (windowWidth < 900) setView('list');
     if (section === 'Nearby' && !nearbyLocation) locateNearby();
@@ -1570,7 +1593,7 @@ const App = () => {
   }, [diaryEntries, activeScope, listSearch]);
   const effectiveSidebarWidth = windowWidth < 900 ? (view === 'map' ? 0 : 100) : view === 'map' ? 0 : view === 'list' ? 100 : 48;
 
-  const filteredMarkers = useMemo(() => markers.filter(m => m.scope === activeScope), [markers, activeScope]);
+  const filteredMarkers = useMemo(() => markers.filter(m => browseAllTrackers || m.scope === activeScope), [markers, activeScope, browseAllTrackers]);
 
   const currentRoutePoints = useMemo(() => {
     let ids: string[] = [];
@@ -1614,7 +1637,7 @@ const App = () => {
   }, [currentRoutePoints]);
 
   const filteredPlaces = useMemo(() => {
-    const scopePlaces = places.filter(item => item.scope === activeScope && matchesSearch(item));
+    const scopePlaces = places.filter(item => (browseAllTrackers || item.scope === activeScope) && matchesSearch(item));
     if (isJourneyMode) {
       return scopePlaces.filter(item => journeyFilter === 'All' || item.status === journeyFilter);
     }
@@ -1630,10 +1653,10 @@ const App = () => {
       if (filter === 'TODO') return item.status === 'To Do';
       return true;
     });
-  }, [places, filter, activeScope, placeCategory, listSearch, isJourneyMode, journeyFilter, routes, activeRouteId, nearbyLocation, nearbyIncludeVisited]);
+  }, [places, filter, activeScope, browseAllTrackers, placeCategory, listSearch, isJourneyMode, journeyFilter, routes, activeRouteId, nearbyLocation, nearbyIncludeVisited]);
 
   const filteredHotels = useMemo(() => {
-    const scopeHotels = hotels.filter(item => item.scope === activeScope && matchesSearch(item));
+    const scopeHotels = hotels.filter(item => (browseAllTrackers || item.scope === activeScope) && matchesSearch({ ...item, category: 'Hotels' }));
     if (isJourneyMode) return scopeHotels.filter(item => journeyFilter === 'All' || item.status === journeyFilter);
     if (filter === 'Trips') {
       const route = routes.find(item => item.id === activeRouteId);
@@ -1644,37 +1667,23 @@ const App = () => {
     if (filter === 'Visited') return scopeHotels.filter(item => item.status === 'Visited');
     if (filter === 'TODO') return scopeHotels.filter(item => item.status === 'To Do');
     return scopeHotels;
-  }, [hotels, filter, activeScope, placeCategory, listSearch, isJourneyMode, journeyFilter, routes, activeRouteId, nearbyLocation, nearbyIncludeVisited]);
+  }, [hotels, filter, activeScope, browseAllTrackers, placeCategory, listSearch, isJourneyMode, journeyFilter, routes, activeRouteId, nearbyLocation, nearbyIncludeVisited]);
 
-  const displayItems = useMemo(() => {
-    const items = [
-      ...filteredHotels.map(h => ({ ...h, category: 'Hotels', type: 'hotel' as const })),
-      ...filteredPlaces.map(p => ({ ...p, type: 'place' as const }))
-    ];
+  const displayItems = useMemo(() => sortCollection([
+    ...filteredHotels.map(item => ({ ...item, category: 'Hotels', type: 'hotel' as const })),
+    ...filteredPlaces.map(item => ({ ...item, type: 'place' as const })),
+  ], filter === 'Nearby' ? 'distance' : collectionPreferences.sort, item => nearbyLocation && Number.isFinite(item.lat) && Number.isFinite(item.lng) && (item.lat !== 0 || item.lng !== 0) ? getDistance(nearbyLocation, item) : Infinity), [filteredHotels, filteredPlaces, filter, nearbyLocation, collectionPreferences.sort]);
 
-    if (filter === 'Visited') return items;
-    if (filter === 'Nearby' && nearbyLocation) {
-      return items.sort((a, b) => getDistance(nearbyLocation, a) - getDistance(nearbyLocation, b));
-    }
-    return items.sort((a, b) => (parseInt(b.priority) || 0) - (parseInt(a.priority) || 0));
-  }, [filteredHotels, filteredPlaces, filter, nearbyLocation]);
-
-  const visitedGroups = useMemo(() => {
-    if (filter !== 'Visited') return {};
-    const groups = displayItems.reduce<Record<string, (Place & { type: 'place' | 'hotel' })[]>>((result, item) => {
-      const category = item.category || 'Other';
-      (result[category] ||= []).push(item);
-      return result;
-    }, {});
-    Object.values(groups).forEach(items => items.sort((a, b) => {
-      const aScore = Number(a.rating) || 0; const bScore = Number(b.rating) || 0;
-      if (aScore === 0 && bScore !== 0) return -1;
-      if (bScore === 0 && aScore !== 0) return 1;
-      if (aScore !== bScore) return bScore - aScore;
-      return Number(b.return === true || b.return === 'TRUE') - Number(a.return === true || a.return === 'TRUE');
-    }));
-    return groups;
-  }, [displayItems, filter]);
+  const renderCollectionItem = (item: PlaceItem) => {
+    const props = {
+      item, isOwner, showTracker: browseAllTrackers, distance: collectionDistance(item),
+      onOpen: () => setDetailItemId(`${item.type}:${item.id}`),
+      onHover: (hovered: boolean) => setHoveredId(hovered ? `${item.type}:${item.id}` : null),
+      onUpdate: (updates: Partial<Place>) => updatePlace(item.id, updates, item.type),
+      onPhotos: () => setActivePhotoItem(item),
+    };
+    return collectionPreferences.density === 'rows' ? <PlaceRow {...props} /> : <PlaceCard {...props} onLocate={() => locateItem(item)} eventDates={item.category === 'Events' ? formatEventDateRange(item.eventStartDate, item.eventEndDate) : undefined} />;
+  };
 
   const getMarkerIcon = (type: string, id: string) => {
     const compositeId = `marker:${id}`;
@@ -2117,6 +2126,7 @@ const App = () => {
                 } catch { setToastMessage('Could not search for that place. Please try again.'); }
                 finally { setIsSearching(false); }
               }} className="space-y-3">
+                <label className="place-field"><span>Save to tracker</span><select aria-label="Save place to tracker" value={activeScope} onChange={event => { setActiveScope(event.target.value as ScopeName); setSearchResults([]); setMapTarget(null); }}>{SCOPE_NAMES.map(scope => <option key={scope} value={scope}>{scope}</option>)}</select></label>
                 <label className="place-field"><span>Name or address in {activeScope}</span><input autoFocus type="search" aria-label="Search for a new place" value={searchQuery} onChange={event => setSearchQuery(event.target.value)} placeholder="e.g. Museum of the Weird" /></label>
                 <button type="submit" className="primary-button w-full" disabled={isSearching || !searchQuery.trim()}>{isSearching ? <Loader2 size={18} className="animate-spin" /> : <Search size={18} />}Search places</button>
               </form>
@@ -2130,30 +2140,41 @@ const App = () => {
           </section>
         </div>
       )}
+      {detailItem && <PlaceDetailsPanel key={detailItemId} item={detailItem} isOwner={isOwner} error={error} eventDates={detailItem.category === 'Events' ? formatEventDateRange(detailItem.eventStartDate, detailItem.eventEndDate) : undefined} onClose={closePlaceDetails} onLocate={() => { closePlaceDetails(); locateItem(detailItem); }} onUpdate={updates => updatePlace(detailItem.id, updates, detailItem.type)} onEdit={() => setEditingItem(detailItem)} onDelete={() => deletePlace(detailItem)} onPhotos={() => setActivePhotoItem(detailItem)} />}
       <div className="tracker-workspace">
         <TrackerNavigation activeSection={activeSection} onNavigate={navigateSection} counts={sectionCounts} isOwner={isOwner} isDarkMode={isDarkMode} onToggleTheme={() => setIsDarkMode(current => !current)} onSettings={() => setShowDebugPanel(true)} onSignIn={() => { setIsAuthError(false); setShowSignIn(true); }} onSignOut={signOut} />
         <div className="tracker-body">
           <header className="tracker-topbar">
             <h1>{activeSection}</h1>
             <div className="topbar-actions">
-              <label className="scope-picker"><MapPin size={16} /><select aria-label="Tracker region" value={activeScope} onChange={event => { setActiveScope(event.target.value as ScopeName); setActiveRouteId(null); setMapTarget(null); setHoveredId(null); setSelectedMapId(null); setIsJourneyMode(false); }} >{SCOPE_NAMES.map(scope => <option key={scope} value={scope}>{SCOPE_CONFIG[scope].label}</option>)}</select><ChevronDown size={14} /></label>
+              <label className="scope-picker"><MapPin size={16} /><select aria-label="Tracker region" value={browseAllTrackers ? "all" : activeScope} onChange={event => { setAllTrackers(event.target.value === "all"); if (event.target.value !== "all") setActiveScope(event.target.value as ScopeName); setActiveRouteId(null); setMapTarget(null); setHoveredId(null); setSelectedMapId(null); setIsJourneyMode(false); }} >{isPlaceCollection && <option value="all">All trackers</option>}{SCOPE_NAMES.map(scope => <option key={scope} value={scope}>{SCOPE_CONFIG[scope].label}</option>)}</select><ChevronDown size={14} /></label>
               <button type="button" className="mobile-utility icon-button" onClick={() => setIsDarkMode(current => !current)} aria-label={isDarkMode ? 'Use light mode' : 'Use dark mode'}>{isDarkMode ? <Sun size={18} /> : <Moon size={18} />}</button>
               {isOwner ? <button type="button" className="mobile-utility icon-button" onClick={() => setShowDebugPanel(true)} aria-label="Settings"><Settings size={18} /></button> : <button type="button" className="mobile-utility icon-button" onClick={() => { setIsAuthError(false); setShowSignIn(true); }} aria-label="Owner sign in"><LogIn size={18} /></button>}
             </div>
           </header>
+          {isPlaceCollection ? <CollectionToolbar
+            search={listSearch} onSearch={setListSearch} status={filter} onStatus={setFilter}
+            counts={{ all: scopedItems.length, todo: toDoCount, visited: visitedCount }}
+            category={placeCategory} onCategory={setPlaceCategory} categories={placeCategories} categoryCounts={categoryCounts}
+            sort={collectionPreferences.sort}
+            onSort={sort => { setCollectionPreferences(current => ({ ...current, sort })); if (sort === 'distance' && !nearbyLocation) locateNearby(); }}
+            grouping={collectionPreferences.grouping} onGroup={grouping => setCollectionPreferences(current => ({ ...current, grouping }))}
+            density={collectionPreferences.density} onDensity={density => setCollectionPreferences(current => ({ ...current, density }))}
+            view={view} onView={setView} mobile={windowWidth < 900} nearby={activeSection === 'Nearby'} isOwner={isOwner}
+            includeVisited={nearbyIncludeVisited} onIncludeVisited={setNearbyIncludeVisited}
+            resultCount={displayItems.length} isLoading={isLoading} locationReady={Boolean(nearbyLocation)} isLocating={isNearbyLocating}
+            onLocate={locateNearby} onAdd={() => setShowAddPlace(true)} onReset={resetCollectionFilters}
+          /> : <>
           <div className="workspace-toolbar">
-            <label className="collection-search"><Search size={18} /><input type="search" value={listSearch} onChange={event => setListSearch(event.target.value)} aria-label={`Search ${activeSection.toLowerCase()}`} placeholder={activeSection === 'Places' || activeSection === 'Nearby' ? 'Search your places…' : `Search ${activeSection.toLowerCase()}…`} />{listSearch && <button type="button" onClick={() => setListSearch('')} aria-label="Clear search"><X size={16} /></button>}</label>
+            <label className="collection-search"><Search size={18} /><input type="search" value={listSearch} onChange={event => setListSearch(event.target.value)} aria-label={`Search ${activeSection.toLowerCase()}`} placeholder={`Search ${activeSection.toLowerCase()}…`} />{listSearch && <button type="button" onClick={() => setListSearch('')} aria-label="Clear search"><X size={16} /></button>}</label>
             <div className="toolbar-actions">
               <div className="view-switch" role="group" aria-label="Layout">{[{ id: 'list', icon: List, label: 'List' }, ...(windowWidth >= 900 ? [{ id: 'split', icon: Columns2, label: 'Split' }] : []), { id: 'map', icon: MapIcon, label: 'Map' }].map(({ id, icon: Icon, label }) => <button key={id} type="button" onClick={() => setView(id)} className={view === id || (windowWidth < 900 && view === 'split' && id === 'list') ? 'is-active' : ''} aria-label={`${label} view`} aria-pressed={view === id || (windowWidth < 900 && view === 'split' && id === 'list')}><Icon size={17} /><span>{label}</span></button>)}</div>
               {isOwner && activeSection !== 'Pins' && !isJourneyMode && <button type="button" className="primary-button collection-add" onClick={() => { if (activeSection === 'Trips') createTrip(); else if (activeSection === 'Diary') setShowDiaryDialog(true); else setShowAddPlace(true); }}><Plus size={18} /><span>{activeSection === 'Trips' ? 'New trip' : activeSection === 'Diary' ? 'Add entry' : 'Add place'}</span></button>}
             </div>
           </div>
-          {(activeSection === 'Places' || activeSection === 'Nearby') && <div className="collection-filters">
-            {activeSection === 'Places' && <div className="status-switch" role="group" aria-label="Visit status">{[{ id: 'TODO', label: 'To do', count: toDoCount }, { id: 'Visited', label: 'Visited', count: visitedCount }, { id: 'All', label: 'All', count: scopedItems.length }].map(option => <button key={option.id} type="button" onClick={() => setFilter(option.id)} className={filter === option.id ? 'is-active' : ''} aria-pressed={filter === option.id}>{option.label}<span>{option.count}</span></button>)}</div>}
-            <label className="category-picker"><Filter size={15} /><select aria-label="Place category" value={placeCategory} onChange={event => setPlaceCategory(event.target.value)}>{placeCategories.map(category => <option key={category} value={category}>{category === 'All' ? 'All categories' : category}</option>)}</select></label>
-          </div>}
+          </>}
           <main className="tracker-main">
-            {error && <div role="alert" className="tracker-error">{error}<button type="button" onClick={() => setError(null)} aria-label="Dismiss error"><X size={16} /></button></div>}
+            {error && !detailItem && <div role="alert" className="tracker-error">{error}<button type="button" onClick={() => setError(null)} aria-label="Dismiss error"><X size={16} /></button></div>}
             <div ref={listPanelRef} style={{ width: `${effectiveSidebarWidth}%` }} data-view={view} className={`collection-panel ${view === 'map' ? 'is-hidden' : ''}`}>
           {isLoading ? <div className="collection-empty" role="status"><Loader2 size={28} className="animate-spin" /><p>Loading your tracker…</p></div> : filter === 'Diary' ? (
             <section className="space-y-5">
@@ -2436,9 +2457,8 @@ const App = () => {
               {markers.filter(marker => marker.scope === activeScope && matchesSearch(marker)).length === 0 && <div className="collection-empty"><MapPin size={32} /><h3>{listSearch ? 'No matching pins' : 'No pins in this region'}</h3><p>{listSearch ? 'Try a different name or address.' : 'Your home, work, and other reference points appear here.'}</p></div>}
             </section>
           ) : (
-            <section className="space-y-6">
+            <section className="collection-browse">
               <div className="space-y-4">
-                <p className="collection-caption">{displayItems.length} {displayItems.length === 1 ? 'place' : 'places'}{filter === 'Nearby' ? ' · Closest first' : filter === 'Visited' ? ' · Grouped by category' : ' · Highest priority first'}</p>
                 {filter === 'Nearby' && (
                   <div className="p-3 bg-white border border-indigo-100 rounded-xl shadow-sm space-y-3">
                     <div className="flex items-center justify-between gap-3">
@@ -2455,19 +2475,11 @@ const App = () => {
                         {nearbyLocation ? 'Refresh' : 'Locate'}
                       </button>
                     </div>
-                    <label className="flex items-center justify-between gap-3 cursor-pointer">
-                      <span className="text-xs font-semibold tracking-wide text-slate-500">Show visited places</span>
-                      <input type="checkbox" checked={nearbyIncludeVisited} onChange={event => setNearbyIncludeVisited(event.target.checked)} className="accent-indigo-600 w-4 h-4" />
-                    </label>
+
                   </div>
                 )}
               </div>
-              {isLoading ? <div className="collection-empty" role="status"><Loader2 size={28} className="animate-spin" /><p>Loading your places…</p></div> : displayItems.length === 0 ? <div className="collection-empty"><MapPin size={32} /><h3>{listSearch ? 'No matching places' : filter === 'Nearby' && !nearbyLocation ? 'Find what is nearby' : filter === 'Visited' ? 'No visits yet' : 'Nothing here yet'}</h3><p>{listSearch ? 'Try a different name or clear your filters.' : filter === 'Nearby' && !nearbyLocation ? 'Use your location to see saved places around you.' : placeCategory !== 'All' ? `No ${placeCategory.toLowerCase()} places in this view.` : 'Your places in this region will appear here.'}</p>{(listSearch || placeCategory !== 'All') && <button type="button" className="secondary-button" onClick={() => { setListSearch(''); setPlaceCategory('All'); }}>Clear filters</button>}</div> : (
-                (filter === 'Visited' ? Object.entries(visitedGroups) : [['', displayItems]] as [string, (Place & { type: 'place' | 'hotel' })[]][]).map(([category, items]) => <div key={category} className="place-group">
-                  {category && <h3 className="group-heading">{category}<span>{items.length}</span></h3>}
-                  <div className="place-list">{items.map(item => <PlaceCard key={`${item.type}:${item.id}`} item={item} isOwner={isOwner} distance={filter === 'Nearby' && nearbyLocation ? `${(getDistance(nearbyLocation, item) * 0.621371).toFixed(1)} mi` : undefined} eventDates={item.category === 'Events' ? formatEventDateRange(item.eventStartDate, item.eventEndDate) : undefined} onLocate={() => locateItem(item)} onHover={hovered => setHoveredId(hovered ? `${item.type}:${item.id}` : null)} onUpdate={updates => updatePlace(item.id, updates, item.type)} onEdit={() => setEditingItem(item)} onDelete={() => deletePlace(item)} onPhotos={() => setActivePhotoItem(item)} visitDatePicker={<CustomDatePicker value={item.date || ''} onChange={date => updatePlace(item.id, { date }, item.type)} />} />)}</div>
-                </div>)
-              )}
+              {displayItems.length === 0 ? <div className="collection-empty"><MapPin size={32} /><h3>{listSearch ? 'No matching places' : filter === 'Nearby' && !nearbyLocation ? 'Find what is nearby' : 'No places in this view'}</h3><p>{listSearch ? 'Try another word, reset filters, or look across all trackers.' : filter === 'Nearby' && !nearbyLocation ? 'Use your location to see saved places around you.' : 'Choose another status or category to see more places.'}</p>{(listSearch || placeCategory !== 'All' || filter === 'Visited' || filter === 'TODO') && <button type="button" className="secondary-button" onClick={resetCollectionFilters}>Reset filters</button>}{!browseAllTrackers && filter !== 'Nearby' && <button type="button" className="secondary-button" onClick={() => { setAllTrackers(true); setFilter('All'); setPlaceCategory('All'); setMapTarget(null); }}>Search all trackers</button>}</div> : <PlaceCollection key={`${collectionPreferences.grouping}-${filter}-${activeScope}-${browseAllTrackers}-${placeCategory}-${listSearch}`} items={displayItems} grouping={collectionPreferences.grouping} density={collectionPreferences.density} renderItem={renderCollectionItem} />}
             </section>
           )}
         </div>
@@ -2493,13 +2505,13 @@ const App = () => {
                 </div>
               )}
               {selectedMapId && <div className="flex gap-2 mt-3">
-                <button type="button" className="secondary-button flex-1" onClick={() => { if (hoveredItem.type === 'marker') navigateSection('Pins'); setView('list'); }}>{hoveredItem.type === 'marker' ? 'Show pins' : 'Show in list'}</button>
+                <button type="button" className="secondary-button flex-1" onClick={() => { if (hoveredItem.type === 'marker') navigateSection('Pins'); else setDetailItemId(`${hoveredItem.type}:${hoveredItem.id}`); setView('list'); }}>{hoveredItem.type === 'marker' ? 'Show pins' : 'Show in list'}</button>
                 {hoveredItem.type !== 'marker' && (isOwner || (hoveredItem as Place).photos) && <button type="button" className="secondary-button" onClick={() => setActivePhotoItem(hoveredItem as Place)}><Camera size={16} />Photos</button>}
               </div>}
             </div>
           )}
 
-          <MapContainer key={activeScope} center={SCOPE_CONFIG[activeScope].center} zoom={SCOPE_CONFIG[activeScope].zoom} className="h-full w-full z-0">
+          <MapContainer key={browseAllTrackers ? "all" : activeScope} center={browseAllTrackers ? [20, 0] : SCOPE_CONFIG[activeScope].center} zoom={browseAllTrackers ? 2 : SCOPE_CONFIG[activeScope].zoom} className="h-full w-full z-0">
             <TileLayer
               url={isDarkMode ? DARK_MAP_TILE_URL : OPENSTREETMAP_TILE_URL}
               attribution={isDarkMode && cartoApiKey ? '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>' : '&copy; OpenStreetMap contributors'}
