@@ -806,6 +806,7 @@ const App = () => {
   const [hotels, setHotels] = useState<Place[]>([]);
   const [routes, setRoutes] = useState<Route[]>([]);
   const [diaryEntries, setDiaryEntries] = useState<DiaryEntry[]>([]);
+  const [diaryScope, setDiaryScope] = useState('all');
   const [isJourneyMode, setIsJourneyMode] = useState(false);
   const [selectedJourneyPlaces, setSelectedJourneyPlaces] = useState<string[]>([]);
   const [journeyName, setJourneyName] = useState('');
@@ -948,7 +949,7 @@ const App = () => {
     return () => { cancelAnimationFrame(frame); document.removeEventListener('keydown', handleKey); if (previousFocus?.isConnected) previousFocus.focus(); };
   }, [dialogKey]);
 
-  useEffect(() => { listPanelRef.current?.scrollTo({ top: 0 }); }, [filter, activeScope, allTrackers, placeCategory, listSearch, collectionPreferences.sort, collectionPreferences.grouping]);
+  useEffect(() => { listPanelRef.current?.scrollTo({ top: 0 }); }, [filter, activeScope, diaryScope, allTrackers, placeCategory, listSearch, collectionPreferences.sort, collectionPreferences.grouping]);
 
   useEffect(() => {
     setIsLoading(true);
@@ -1557,10 +1558,11 @@ const App = () => {
   const collectionDistance = (item: Place) => (filter === 'Nearby' || collectionPreferences.sort === 'distance') && nearbyLocation && Number.isFinite(item.lat) && Number.isFinite(item.lng) && (item.lat !== 0 || item.lng !== 0) ? `${(getDistance(nearbyLocation, item) * 0.621371).toFixed(1)} mi` : undefined;
   const toDoCount = scopedItems.filter(item => item.status === 'To Do').length;
   const visitedCount = scopedItems.filter(item => item.status === 'Visited').length;
-  const sectionCounts = { Places: scopedItems.length, Trips: routes.filter(route => route.scope === activeScope).length, Diary: diaryEntries.filter(entry => entry.scope === activeScope).length, Pins: markers.filter(marker => marker.scope === activeScope).length };
+  const sectionCounts = { Places: scopedItems.length, Trips: routes.filter(route => route.scope === activeScope).length, Diary: diaryEntries.length, Pins: markers.filter(marker => marker.scope === activeScope).length };
   const navigateSection = (section: TrackerSection) => {
     setFilter(section === 'Places' ? 'All' : section === 'Pins' ? 'Saved' : section);
     setListSearch('');
+    if (section === 'Diary') { setDiaryScope('all'); setMapTarget(null); }
     setPlaceCategory('All');
     setHoveredId(null);
     setSelectedMapId(null);
@@ -1581,19 +1583,22 @@ const App = () => {
     setMapTarget({ center: [Number(item.lat), Number(item.lng)], zoom: 15 });
     if (windowWidth < 900) setView('map'); else if (view === 'list') setView('split');
   };
+  const diaryScopes = useMemo(() => [...new Set([...SCOPE_NAMES, ...diaryEntries.map(entry => entry.scope).filter(Boolean)])], [diaryEntries]);
+  const visibleDiaryEntries = useMemo(() => diaryEntries
+    .filter(entry => (diaryScope === 'all' || entry.scope === diaryScope) && matchesCollectionSearch(entry, listSearch))
+    .sort((a, b) => `${b.date}-${b.createdAt}`.localeCompare(`${a.date}-${a.createdAt}`)), [diaryEntries, diaryScope, listSearch]);
   const diaryGroups = useMemo(() => {
-    const scopedEntries = diaryEntries
-      .filter(entry => entry.scope === activeScope && matchesSearch(entry))
-      .sort((a, b) => `${b.date}-${b.createdAt}`.localeCompare(`${a.date}-${a.createdAt}`));
-    return scopedEntries.reduce<Record<string, DiaryEntry[]>>((groups, entry) => {
+    return visibleDiaryEntries.reduce<Record<string, DiaryEntry[]>>((groups, entry) => {
       if (!groups[entry.date]) groups[entry.date] = [];
       groups[entry.date].push(entry);
       return groups;
     }, {});
-  }, [diaryEntries, activeScope, listSearch]);
+  }, [visibleDiaryEntries]);
   const effectiveSidebarWidth = windowWidth < 900 ? (view === 'map' ? 0 : 100) : view === 'map' ? 0 : view === 'list' ? 100 : 48;
+  const mapScope = filter === 'Diary' ? diaryScope : browseAllTrackers ? 'all' : activeScope;
+  const mapScopeConfig = SCOPE_CONFIG[mapScope as ScopeName];
 
-  const filteredMarkers = useMemo(() => markers.filter(m => browseAllTrackers || m.scope === activeScope), [markers, activeScope, browseAllTrackers]);
+  const filteredMarkers = useMemo(() => markers.filter(m => mapScope === 'all' || m.scope === mapScope), [markers, mapScope]);
 
   const currentRoutePoints = useMemo(() => {
     let ids: string[] = [];
@@ -2023,6 +2028,8 @@ const App = () => {
               <button type="button" onClick={resetDiaryDialog} className="secondary-button">Close</button>
             </div>
 
+            <label className="place-field"><span>Save to ToDo List</span><select aria-label="Save diary entry to ToDo List" value={activeScope} onChange={event => { setActiveScope(event.target.value as ScopeName); setDiaryPlace(null); setDiarySearch(''); setDiarySearchResults([]); }}>{SCOPE_NAMES.map(scope => <option key={scope} value={scope}>{scope}</option>)}</select></label>
+
             <label className="block">
               <span className="text-xs font-semibold tracking-wide text-slate-400">Date</span>
               <input type="date" value={diaryDate} max={format(new Date(), 'yyyy-MM-dd')} onChange={event => setDiaryDate(event.target.value)} className="mt-1 w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500" />
@@ -2147,7 +2154,9 @@ const App = () => {
           <header className="tracker-topbar">
             <h1>{activeSection}</h1>
             <div className="topbar-actions">
+              {activeSection === 'Diary' ? <label className="scope-picker"><Filter size={16} /><select aria-label="Filter diary by location or ToDo List" value={diaryScope} onChange={event => { setDiaryScope(event.target.value); setMapTarget(null); }}><option value="all">All entries</option>{diaryScopes.map(scope => <option key={scope} value={scope}>{scope}</option>)}</select><ChevronDown size={14} /></label> : (
               <label className="scope-picker"><MapPin size={16} /><select aria-label="Tracker region" value={browseAllTrackers ? "all" : activeScope} onChange={event => { setAllTrackers(event.target.value === "all"); if (event.target.value !== "all") setActiveScope(event.target.value as ScopeName); setActiveRouteId(null); setMapTarget(null); setHoveredId(null); setSelectedMapId(null); setIsJourneyMode(false); }} >{isPlaceCollection && <option value="all">All trackers</option>}{SCOPE_NAMES.map(scope => <option key={scope} value={scope}>{SCOPE_CONFIG[scope].label}</option>)}</select><ChevronDown size={14} /></label>
+              )}
               <button type="button" className="mobile-utility icon-button" onClick={() => setIsDarkMode(current => !current)} aria-label={isDarkMode ? 'Use light mode' : 'Use dark mode'}>{isDarkMode ? <Sun size={18} /> : <Moon size={18} />}</button>
               {isOwner ? <button type="button" className="mobile-utility icon-button" onClick={() => setShowDebugPanel(true)} aria-label="Settings"><Settings size={18} /></button> : <button type="button" className="mobile-utility icon-button" onClick={() => { setIsAuthError(false); setShowSignIn(true); }} aria-label="Owner sign in"><LogIn size={18} /></button>}
             </div>
@@ -2178,11 +2187,11 @@ const App = () => {
             <div ref={listPanelRef} style={{ width: `${effectiveSidebarWidth}%` }} data-view={view} className={`collection-panel ${view === 'map' ? 'is-hidden' : ''}`}>
           {isLoading ? <div className="collection-empty" role="status"><Loader2 size={28} className="animate-spin" /><p>Loading your tracker…</p></div> : filter === 'Diary' ? (
             <section className="space-y-5">
-              <p className="collection-caption">{Object.values(diaryGroups).flat().length} entries · Most recent first</p>
+              <p className="collection-caption" role="status">{visibleDiaryEntries.length} {visibleDiaryEntries.length === 1 ? 'entry' : 'entries'} · Most recent first</p>
               {Object.keys(diaryGroups).length === 0 ? (
                 <div className="text-center py-12 text-slate-400 bg-white rounded-2xl border border-slate-100">
                   <BookOpen size={36} className="mx-auto mb-3 opacity-20" />
-                  <p className="text-sm font-medium">{listSearch ? 'No diary entries match your search.' : `No diary entries for ${activeScope} yet.`}</p>
+                  <p className="text-sm font-medium">{listSearch ? 'No diary entries match your search.' : diaryScope === 'all' ? 'No diary entries yet.' : `No diary entries for ${diaryScope} yet.`}</p>
                 </div>
               ) : Object.entries(diaryGroups).map(([date, entries]) => (
                 <div key={date} className="space-y-2">
@@ -2192,6 +2201,7 @@ const App = () => {
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <h4 className="font-bold text-base text-slate-900">{entry.lat && entry.lng ? <button type="button" className="text-left hover:text-indigo-600" onClick={() => locateItem(entry)}>{entry.title}</button> : entry.title}</h4>
+                          {entry.scope && <p className="text-xs text-slate-500 mt-1">{entry.scope}</p>}
                           {entry.address && <p className="text-xs text-indigo-500 mt-1 flex items-center gap-1 truncate"><MapPin size={11} className="shrink-0" /> {entry.address}</p>}
                         </div>
                         {isOwner && <button onClick={event => { event.stopPropagation(); deleteDiaryEntry(entry); }} className="p-1.5 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-lg" title="Delete diary entry"><Trash2 size={16} /></button>}
@@ -2511,7 +2521,7 @@ const App = () => {
             </div>
           )}
 
-          <MapContainer key={browseAllTrackers ? "all" : activeScope} center={browseAllTrackers ? [20, 0] : SCOPE_CONFIG[activeScope].center} zoom={browseAllTrackers ? 2 : SCOPE_CONFIG[activeScope].zoom} className="h-full w-full z-0">
+          <MapContainer key={mapScope} center={mapScopeConfig?.center || [20, 0]} zoom={mapScopeConfig?.zoom || 2} className="h-full w-full z-0">
             <TileLayer
               url={isDarkMode ? DARK_MAP_TILE_URL : OPENSTREETMAP_TILE_URL}
               attribution={isDarkMode && cartoApiKey ? '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>' : '&copy; OpenStreetMap contributors'}
@@ -2580,7 +2590,7 @@ const App = () => {
                 }}
               />
             ))}
-            {filter === 'Diary' && diaryEntries.filter(entry => entry.scope === activeScope && entry.lat && entry.lng).map(entry => (
+            {filter === 'Diary' && visibleDiaryEntries.filter(entry => entry.lat && entry.lng).map(entry => (
               <Marker key={`diary:${entry.id}`} position={[entry.lat, entry.lng]} icon={defaultPinIcon}>
                 <Popup>
                   <div className="min-w-[180px]">
