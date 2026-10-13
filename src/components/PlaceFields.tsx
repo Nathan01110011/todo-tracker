@@ -1,3 +1,4 @@
+import CustomSelect from './CustomSelect';
 import { useEffect, useState } from 'react';
 import { RotateCcw, Star } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
@@ -13,7 +14,7 @@ export default function PlaceFields({ item, isOwner, onUpdate }: Props) {
   return (
     <div className="place-details">
       <div className="place-fields">
-        <label className="place-field"><span>Priority</span><select aria-label={`Priority for ${item.name}`} value={item.priority || ''} disabled={!isOwner} onChange={event => onUpdate({ priority: event.target.value })}><option value="">Not set</option>{[1, 2, 3, 4, 5].map(level => <option key={level} value={level}>{level} / 5{level === 1 ? ' · Low' : level === 5 ? ' · High' : ''}</option>)}</select></label>
+        <label className="place-field"><span>Priority</span><CustomSelect label={`Priority for ${item.name}`} value={item.priority || ''} disabled={!isOwner} onChange={value => onUpdate({ priority: value })} options={['', '1', '2', '3', '4', '5']} getOptionLabel={value => value === '' ? 'Not set' : `${value} / 5${value === '1' ? ' · Low' : value === '5' ? ' · High' : ''}`} /></label>
         {visited && <div className="place-field"><span>Rating</span><div className="place-rating">{[1, 2, 3, 4, 5].map(level => <button key={level} type="button" disabled={!isOwner} aria-label={`Rate ${item.name} ${level} out of 5`} aria-pressed={Number(item.rating) === level} onClick={() => onUpdate({ rating: String(level) })}><Star size={19} fill={Number(item.rating) >= level ? 'currentColor' : 'none'} className={Number(item.rating) >= level ? 'is-rated' : ''} /></button>)}</div></div>}
         {visited && <label className="place-field"><span>Date visited</span>{isOwner ? <input type="date" aria-label={`Date visited for ${item.name}`} value={item.date || ''} onChange={event => onUpdate({ date: event.target.value })} /> : <span className="readonly-date">{item.date ? format(parseISO(item.date), 'd MMM yyyy') : 'Not recorded'}</span>}</label>}
       </div>

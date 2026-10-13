@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import CustomSelect from './components/CustomSelect';
 import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline } from 'react-leaflet';
 import L from 'leaflet';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -300,9 +301,7 @@ const EditLocationModal = ({ item, onSave, onDelete, onClose }: { item: Place, o
           {!isHotel && (
             <label className="block space-y-1">
               <span className="text-xs font-bold tracking-wide text-slate-400">Category</span>
-              <select value={category} onChange={(e) => setCategory(e.target.value)} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm">
-                {['Food', 'Drinks', 'Activities', 'Shopping', 'Sport', 'Events', 'Other'].map(option => <option key={option} value={option}>{option}</option>)}
-              </select>
+              <CustomSelect label="Category" value={category} onChange={setCategory} options={['Food', 'Drinks', 'Activities', 'Shopping', 'Sport', 'Events', 'Other']} />
             </label>
           )}
           <label className="block space-y-1">
@@ -2126,7 +2125,7 @@ const App = () => {
                 } catch { setToastMessage('Could not search for that place. Please try again.'); }
                 finally { setIsSearching(false); }
               }} className="space-y-3">
-                <label className="place-field"><span>Save to tracker</span><select aria-label="Save place to tracker" value={activeScope} onChange={event => { setActiveScope(event.target.value as ScopeName); setSearchResults([]); setMapTarget(null); }}>{SCOPE_NAMES.map(scope => <option key={scope} value={scope}>{scope}</option>)}</select></label>
+                <label className="place-field"><span>Save to tracker</span><CustomSelect label="Save place to tracker" value={activeScope} onChange={value => { setActiveScope(value as ScopeName); setSearchResults([]); setMapTarget(null); }} options={SCOPE_NAMES} /></label>
                 <label className="place-field"><span>Name or address in {activeScope}</span><input autoFocus type="search" aria-label="Search for a new place" value={searchQuery} onChange={event => setSearchQuery(event.target.value)} placeholder="e.g. Museum of the Weird" /></label>
                 <button type="submit" className="primary-button w-full" disabled={isSearching || !searchQuery.trim()}>{isSearching ? <Loader2 size={18} className="animate-spin" /> : <Search size={18} />}Search places</button>
               </form>
@@ -2147,7 +2146,7 @@ const App = () => {
           <header className="tracker-topbar">
             <h1>{activeSection}</h1>
             <div className="topbar-actions">
-              <label className="scope-picker"><MapPin size={16} /><select aria-label="Tracker region" value={browseAllTrackers ? "all" : activeScope} onChange={event => { setAllTrackers(event.target.value === "all"); if (event.target.value !== "all") setActiveScope(event.target.value as ScopeName); setActiveRouteId(null); setMapTarget(null); setHoveredId(null); setSelectedMapId(null); setIsJourneyMode(false); }} >{isPlaceCollection && <option value="all">All trackers</option>}{SCOPE_NAMES.map(scope => <option key={scope} value={scope}>{SCOPE_CONFIG[scope].label}</option>)}</select><ChevronDown size={14} /></label>
+              <label className="scope-picker"><MapPin size={16} /><CustomSelect label="Tracker region" value={browseAllTrackers ? 'all' : activeScope} options={isPlaceCollection ? ['all', ...SCOPE_NAMES] : SCOPE_NAMES} getOptionLabel={scope => scope === 'all' ? 'All trackers' : SCOPE_CONFIG[scope as ScopeName].label} onChange={value => { setAllTrackers(value === 'all'); if (value !== 'all') setActiveScope(value as ScopeName); setActiveRouteId(null); setMapTarget(null); setHoveredId(null); setSelectedMapId(null); setIsJourneyMode(false); }} /></label>
               <button type="button" className="mobile-utility icon-button" onClick={() => setIsDarkMode(current => !current)} aria-label={isDarkMode ? 'Use light mode' : 'Use dark mode'}>{isDarkMode ? <Sun size={18} /> : <Moon size={18} />}</button>
               {isOwner ? <button type="button" className="mobile-utility icon-button" onClick={() => setShowDebugPanel(true)} aria-label="Settings"><Settings size={18} /></button> : <button type="button" className="mobile-utility icon-button" onClick={() => { setIsAuthError(false); setShowSignIn(true); }} aria-label="Owner sign in"><LogIn size={18} /></button>}
             </div>
