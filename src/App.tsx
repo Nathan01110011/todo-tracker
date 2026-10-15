@@ -260,6 +260,7 @@ const EditLocationModal = ({ item, onSave, onDelete, onClose }: { item: Place, o
   const [lat, setLat] = useState(String(item.lat));
   const [lng, setLng] = useState(String(item.lng));
   const [details, setDetails] = useState(item.details || '');
+  const [isChain, setIsChain] = useState(item.isChain === true || item.isChain === 'TRUE');
   const [eventStartDate, setEventStartDate] = useState(item.eventStartDate || '');
   const [eventEndDate, setEventEndDate] = useState(item.eventEndDate || '');
   const isHotel = item.type === 'hotel';
@@ -276,6 +277,7 @@ const EditLocationModal = ({ item, onSave, onDelete, onClose }: { item: Place, o
       lat: Number.isFinite(nextLat) ? nextLat : item.lat,
       lng: Number.isFinite(nextLng) ? nextLng : item.lng,
       details,
+      isChain,
       eventStartDate: category === 'Events' ? eventStartDate : '',
       eventEndDate: category === 'Events' ? eventEndDate : ''
     }, item.type || 'place');
@@ -297,6 +299,7 @@ const EditLocationModal = ({ item, onSave, onDelete, onClose }: { item: Place, o
             <span className="text-xs font-bold tracking-wide text-slate-400">Name</span>
             <input value={name} onChange={(e) => setName(e.target.value)} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
           </label>
+          <label className="chain-option"><input type="checkbox" checked={isChain} onChange={event => setIsChain(event.target.checked)} /><span>Part of a chain<small>Has multiple locations</small></span></label>
           {!isHotel && (
             <label className="block space-y-1">
               <span className="text-xs font-bold tracking-wide text-slate-400">Category</span>
@@ -895,6 +898,7 @@ const App = () => {
   const [pendingPlace, setPendingPlace] = useState<any>(null);
   const [pendingName, setPendingName] = useState('');
   const [pendingDetails, setPendingDetails] = useState('');
+  const [pendingChain, setPendingChain] = useState(false);
   const [showEventDateDialog, setShowEventDateDialog] = useState(false);
   const [showDiaryDialog, setShowDiaryDialog] = useState(false);
   const [diaryDate, setDiaryDate] = useState(format(new Date(), 'yyyy-MM-dd'));
@@ -922,7 +926,7 @@ const App = () => {
     const previousFocus = document.activeElement as HTMLElement | null;
     const getDialog = () => Array.from(document.querySelectorAll<HTMLElement>('[aria-modal="true"]')).sort((a, b) => Number(getComputedStyle(b).zIndex) - Number(getComputedStyle(a).zIndex))[0];
     const getFocusables = () => Array.from(getDialog()?.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]):not([type="file"]), textarea:not([disabled]), select:not([disabled]), [tabindex="0"]') || []).filter(element => element.getClientRects().length > 0);
-    const frame = requestAnimationFrame(() => { if (!getDialog()?.contains(document.activeElement)) getFocusables()[0]?.focus(); });
+    const frame = requestAnimationFrame(() => { if (!getDialog()?.contains(document.activeElement)) getFocusables()[0]?.focus({ preventScroll: true }); });
     const handleKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault();
@@ -945,7 +949,7 @@ const App = () => {
       }
     };
     document.addEventListener('keydown', handleKey);
-    return () => { cancelAnimationFrame(frame); document.removeEventListener('keydown', handleKey); if (previousFocus?.isConnected) previousFocus.focus(); };
+    return () => { cancelAnimationFrame(frame); document.removeEventListener('keydown', handleKey); if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true }); };
   }, [dialogKey]);
 
   useEffect(() => { listPanelRef.current?.scrollTo({ top: 0 }); }, [filter, activeScope, allTrackers, placeCategory, listSearch, collectionPreferences.sort, collectionPreferences.grouping]);
@@ -1047,7 +1051,7 @@ const App = () => {
   const addPlace = async (category: string, eventStartDate = '', eventEndDate = '') => {
     if (!isOwner || !pendingPlace) return; setIsAdding(true);
     const isHotel = category === 'Hotels';
-    const newEntry: any = { name: pendingName || pendingPlace.display_name.split(',')[0], address: pendingPlace.display_name.split(',').slice(1).join(',').trim(), lat: parseFloat(pendingPlace.lat), lng: parseFloat(pendingPlace.lon), category: isHotel ? 'Hotels' : category, status: 'To Do', notes: '', rating: '', priority: '', scope: activeScope, type: isHotel ? 'hotel' : 'place', details: pendingDetails, eventStartDate, eventEndDate };
+    const newEntry: any = { name: pendingName || pendingPlace.display_name.split(',')[0], address: pendingPlace.display_name.split(',').slice(1).join(',').trim(), lat: parseFloat(pendingPlace.lat), lng: parseFloat(pendingPlace.lon), category: isHotel ? 'Hotels' : category, status: 'To Do', notes: '', rating: '', priority: '', scope: activeScope, type: isHotel ? 'hotel' : 'place', details: pendingDetails, isChain: pendingChain, eventStartDate, eventEndDate };
     try {
       const res = await fetch('/api/places', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': appPassword || '' }, body: JSON.stringify(newEntry) });
       const data = await res.json();
@@ -2130,10 +2134,11 @@ const App = () => {
                 <label className="place-field"><span>Name or address in {activeScope}</span><input autoFocus type="search" aria-label="Search for a new place" value={searchQuery} onChange={event => setSearchQuery(event.target.value)} placeholder="e.g. Museum of the Weird" /></label>
                 <button type="submit" className="primary-button w-full" disabled={isSearching || !searchQuery.trim()}>{isSearching ? <Loader2 size={18} className="animate-spin" /> : <Search size={18} />}Search places</button>
               </form>
-              <div className="space-y-2">{searchResults.map((result, index) => <button key={index} type="button" onClick={() => { setPendingPlace(result); setPendingName(result.display_name.split(',')[0]); setPendingDetails(''); }} className="search-result"><strong>{result.display_name.split(',')[0]}</strong><span>{result.display_name.split(',').slice(1).join(',')}</span></button>)}</div>
+              <div className="space-y-2">{searchResults.map((result, index) => <button key={index} type="button" onClick={() => { setPendingPlace(result); setPendingName(result.display_name.split(',')[0]); setPendingDetails(''); setPendingChain(false); }} className="search-result"><strong>{result.display_name.split(',')[0]}</strong><span>{result.display_name.split(',').slice(1).join(',')}</span></button>)}</div>
             </> : <>
               <p className="text-sm text-slate-500">{pendingPlace.display_name}</p>
               <label className="place-field"><span>Name</span><input value={pendingName} onChange={event => setPendingName(event.target.value)} /></label>
+              <label className="chain-option"><input type="checkbox" checked={pendingChain} onChange={event => setPendingChain(event.target.checked)} /><span>Part of a chain<small>Has multiple locations</small></span></label>
               <label className="place-field"><span>Details</span><textarea value={pendingDetails} onChange={event => setPendingDetails(event.target.value)} placeholder="What makes this place worth a visit?" /></label>
               <div className="space-y-2"><p className="text-sm font-semibold">Choose a category to save</p><div className="grid grid-cols-2 gap-2">{placeCategories.filter(category => category !== 'All').map(category => <button key={category} type="button" className="secondary-button" disabled={isAdding} onClick={() => category === 'Events' ? setShowEventDateDialog(true) : addPlace(category)}>{isAdding && <Loader2 size={16} className="animate-spin" />}{category}</button>)}</div></div>
             </>}

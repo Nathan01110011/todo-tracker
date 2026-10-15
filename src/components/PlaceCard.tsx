@@ -27,7 +27,7 @@ export default function PlaceCard({ item, isOwner, showTracker, distance, eventD
   return (
     <article className="place-card" data-place-id={`${item.type}:${item.id}`} onMouseEnter={() => onHover(true)} onMouseLeave={() => onHover(false)}>
       <div className="place-card-header">
-        <div className="place-category"><CategoryIcon size={15} /><span>{item.category || 'Other'}{showTracker ? ` · ${item.scope}` : ''}</span>{distance && <span className="distance-badge">{distance}</span>}</div>
+        <div className="place-category"><CategoryIcon size={15} /><span>{item.category || 'Other'}{(item.isChain === true || item.isChain === 'TRUE') ? ' · Chain' : ''}{showTracker ? ` · ${item.scope}` : ''}</span>{distance && <span className="distance-badge">{distance}</span>}</div>
         {isOwner ? <button type="button" className={`visit-toggle ${visited ? 'is-visited' : ''}`} aria-label={`Mark ${item.name} as ${visited ? 'to do' : 'visited'}`} aria-pressed={visited} onClick={() => onUpdate({ status: visited ? 'To Do' : 'Visited' })}>{visited ? <Check size={17} /> : <span className="visit-circle" />}</button> : <span className={`visit-label ${visited ? 'is-visited' : ''}`}>{visited ? 'Visited' : 'To do'}</span>}
       </div>
       <button type="button" className="place-name" onClick={onOpen} aria-label={`View details for ${item.name}`}>{item.name}</button>

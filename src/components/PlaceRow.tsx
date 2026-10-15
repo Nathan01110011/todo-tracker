@@ -25,7 +25,7 @@ export default function PlaceRow({ item, isOwner, showTracker, distance, onOpen,
         <span className="place-row-icon" aria-hidden="true"><Icon size={18} /></span>
         <span className="place-row-copy">
           <strong>{item.name}</strong>
-          <span className="place-row-meta"><span>{item.category || 'Other'}{showTracker ? ` · ${item.scope}` : ''}</span>{item.address && <span className="place-row-address" title={item.address}>{item.address}</span>}</span>
+          <span className="place-row-meta"><span>{item.category || 'Other'}{(item.isChain === true || item.isChain === 'TRUE') ? ' · Chain' : ''}{showTracker ? ` · ${item.scope}` : ''}</span>{item.address && <span className="place-row-address" title={item.address}>{item.address}</span>}</span>
         </span>
         {distance ? <span className="row-distance">{distance}</span> : visited && Number(item.rating) > 0 ? <span className="row-rating" aria-label={`Rated ${item.rating} out of 5`}><Star size={13} fill="currentColor" />{item.rating}</span> : Number(item.priority) > 0 ? <span className="row-priority priority-bars" aria-label={`Priority ${item.priority} out of 5`}>{[1, 2, 3, 4, 5].map(level => <i key={level} className={Number(item.priority) >= level ? 'is-filled' : ''} />)}</span> : null}
         <ChevronRight size={16} className="row-chevron" aria-hidden="true" />

@@ -49,7 +49,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const ensurePlaceColumns = async (sheet: any, includeEventDates = false) => {
       if (!sheet) return;
       await sheet.loadHeaderRow();
-      const requiredColumns = includeEventDates ? ['priority', 'eventStartDate', 'eventEndDate'] : ['priority'];
+      const requiredColumns = includeEventDates ? ['priority', 'isChain', 'eventStartDate', 'eventEndDate'] : ['priority', 'isChain'];
       const missingColumns = requiredColumns.filter(column => !sheet.headerValues.includes(column));
       if (missingColumns.length > 0) {
         await sheet.setHeaderRow([...sheet.headerValues, ...missingColumns]);
@@ -145,6 +145,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           status: row.get('status') || 'To Do',
           notes: row.get('notes') || '',
           rating: row.get('rating') || '',
+          isChain: placesSheet?.headerValues.includes('isChain') ? row.get('isChain') === 'TRUE' : false,
           priority: placesSheet?.headerValues.includes('priority') ? row.get('priority') || '' : '',
           scope: row.get('scope') || 'Austin',
           return: row.get('return') || '',
@@ -180,6 +181,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           status: row.get('status') || 'To Do',
           notes: row.get('notes') || '',
           rating: row.get('rating') || '',
+          isChain: hotelsSheet?.headerValues.includes('isChain') ? row.get('isChain') === 'TRUE' : false,
           priority: hotelsSheet?.headerValues.includes('priority') ? row.get('priority') || '' : '',
           scope: row.get('scope') || 'Austin',
           return: row.get('return') || '',
@@ -218,7 +220,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (req.method === 'POST') {
-      const { id, status, rating, priority, notes, name, title, category, address, lat, lng, scope, return: returnFlag, details, photoUrl, photoComment, capturedAt, uploadedAt, date, eventStartDate, eventEndDate, type = 'place', placeId, placeType, placeIds, tripType, completedPlaceIds, action } = req.body;
+      const { id, status, rating, priority, notes, name, title, category, address, lat, lng, scope, return: returnFlag, details, isChain, photoUrl, photoComment, capturedAt, uploadedAt, date, eventStartDate, eventEndDate, type = 'place', placeId, placeType, placeIds, tripType, completedPlaceIds, action } = req.body;
 
       if (action === 'syncDiaryFromPhotos') {
         if (!diarySheet) return res.status(404).json({ error: 'Diary sheet not found' });
@@ -623,6 +625,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           if (scope !== undefined) row.set('scope', scope);
           if (returnFlag !== undefined) row.set('return', returnFlag ? 'TRUE' : 'FALSE');
           if (details !== undefined) row.set('details', details);
+          if (isChain !== undefined) row.set('isChain', isChain === true || isChain === 'TRUE' ? 'TRUE' : 'FALSE');
           if (date !== undefined) row.set('date', date);
           if (eventStartDate !== undefined && type !== 'hotel') row.set('eventStartDate', eventStartDate);
           if (eventEndDate !== undefined && type !== 'hotel') row.set('eventEndDate', eventEndDate);
@@ -636,12 +639,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (type === 'hotel') {
         await targetSheet.addRow({
           id: newId, name: name || 'New Hotel', address: address || '', lat: String(lat || 0), lng: String(lng || 0),
-          status: 'To Do', notes: notes || '', rating: '', priority: '', scope: scope || 'Austin', return: '', date: ''
+          status: 'To Do', notes: notes || '', rating: '', priority: '', isChain: isChain === true || isChain === 'TRUE' ? 'TRUE' : 'FALSE', scope: scope || 'Austin', return: '', date: ''
         });
       } else {
         await targetSheet.addRow({
           id: newId, category: category || 'Other', name: name || 'New Place', address: address || '', lat: String(lat || 0), lng: String(lng || 0),
-          status: 'To Do', notes: notes || '', rating: '', priority: '', scope: scope || 'Austin', return: '', details: details || '', date: '',
+          status: 'To Do', notes: notes || '', rating: '', priority: '', isChain: isChain === true || isChain === 'TRUE' ? 'TRUE' : 'FALSE', scope: scope || 'Austin', return: '', details: details || '', date: '',
           eventStartDate: eventStartDate || '', eventEndDate: eventEndDate || ''
         });
       }
