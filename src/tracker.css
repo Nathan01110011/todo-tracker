@@ -297,7 +297,7 @@ button:disabled { opacity: .55; }
 .row-visit.readonly { opacity: .85; }
 .card-detail-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
 .card-detail-actions .icon-button { width: 28px; min-height: 34px; height: 34px; }
-.place-panel-overlay { position: fixed; inset: 0; display: flex; justify-content: flex-end; background: rgb(7 16 20 / .4); backdrop-filter: blur(2px); z-index: 130; }
+.place-panel-overlay { position: fixed; inset: 0; height: 100dvh; overflow: hidden; overscroll-behavior: contain; display: flex; justify-content: flex-end; background: rgb(7 16 20 / .4); backdrop-filter: blur(2px); z-index: 130; }
 .place-panel { display: flex; flex-direction: column; min-width: 0; width: min(460px, 100%); height: 100dvh; color: var(--text); background: var(--surface); box-shadow: -12px 0 50px rgb(0 0 0 / .15); }
 .place-panel-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 24px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .place-panel-header button { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 2px 0; border: 0; color: var(--text); background: transparent; font-size: .875rem; font-weight: 550; }
@@ -344,7 +344,7 @@ button:disabled { opacity: .55; }
   .place-row-address { flex: 1; min-width: 0; }
   .place-row-actions { margin-right: 6px; }
   .place-panel-overlay { align-items: flex-end; padding-top: 24px; }
-  .place-panel { width: 100%; height: min(82dvh, 760px); max-height: calc(100dvh - 24px); border-radius: 20px 20px 0 0; box-shadow: 0 -8px 50px rgb(0 0 0 / .2); }
+  .place-panel { width: 100%; height: calc(100dvh - 24px); max-height: calc(100dvh - 24px); border-radius: 20px 20px 0 0; box-shadow: 0 -8px 50px rgb(0 0 0 / .2); }
   .place-panel-header { padding: 10px 20px; }
   .place-panel-body { padding: 20px; }
   .place-panel-footer { padding-inline: 20px; }
@@ -357,3 +357,8 @@ button:disabled { opacity: .55; }
   .browse-options label, .browse-density { min-width: 0; }
   .row-photos { min-width: 30px; }
 }
+
+.chain-option { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+.chain-option input { width: 18px; height: 18px; accent-color: var(--accent-solid); flex-shrink: 0; }
+.chain-option small { display: block; color: var(--muted); font-size: .8125rem; }
+.chain-badge { display: inline-block; margin-bottom: 10px; padding: 2px 8px; border-radius: 6px; color: var(--accent); background: var(--accent-soft); font-size: .8125rem; }

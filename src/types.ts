@@ -20,6 +20,7 @@ export interface Place {
   return?: string | boolean;
   type?: 'place' | 'hotel';
   details?: string;
+  isChain?: boolean | string;
   date?: string;
   eventStartDate?: string;
   eventEndDate?: string;
