@@ -1,3 +1,4 @@
+import { readExperiences, mutateExperiences, ExperienceError } from '../server/experiences';
 import { GoogleSpreadsheet } from 'google-spreadsheet';
 import { JWT } from 'google-auth-library';
 import { v2 as cloudinary } from 'cloudinary';
@@ -104,14 +105,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
+    if (req.method === 'POST' && req.body?.type === 'experience') {
+      try { return res.status(200).json(await mutateExperiences(doc, req.body)); }
+      catch (error) { if (error instanceof ExperienceError) return res.status(error.status).json({ error: error.message }); throw error; }
+    }
+
     if (req.method === 'GET') {
-      const [placesRows, markersRows, hotelsRows, photoRows, routeRows, diaryRows] = await Promise.all([
+      const [placesRows, markersRows, hotelsRows, photoRows, routeRows, diaryRows, experiences] = await Promise.all([
         placesSheet ? placesSheet.getRows() : Promise.resolve([]),
         markersSheet ? markersSheet.getRows() : Promise.resolve([]),
         hotelsSheet ? hotelsSheet.getRows() : Promise.resolve([]),
         photosSheet ? photosSheet.getRows() : Promise.resolve([]),
         routesSheet ? routesSheet.getRows() : Promise.resolve([]),
-        diarySheet ? diarySheet.getRows() : Promise.resolve([])
+        diarySheet ? diarySheet.getRows() : Promise.resolve([]),
+        readExperiences(doc)
       ]);
 
       const uploadTimestampFromUrl = (url: string) => {
@@ -216,7 +223,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         createdAt: row.get('createdAt') || '',
       }));
 
-      return res.status(200).json({ places, markers, hotels, routes, diaryEntries });
+      return res.status(200).json({ places, markers, hotels, routes, diaryEntries, experiences });
     }
 
     if (req.method === 'POST') {

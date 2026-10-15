@@ -5,6 +5,8 @@ import L from 'leaflet';
 import { renderToStaticMarkup } from 'react-dom/server';
 import 'leaflet/dist/leaflet.css';
 import TrackerNavigation, { type TrackerSection } from './components/TrackerNavigation';
+import ExperiencesPanel from './components/ExperiencesPanel';
+import { emptyExperiences, type Experiences } from './lib/experiences';
 import PlaceCard from './components/PlaceCard';
 import PlaceRow from './components/PlaceRow';
 import PlaceCollection from './components/PlaceCollection';
@@ -808,6 +810,7 @@ const App = () => {
   const [markers, setMarkers] = useState<MarkerData[]>([]);
   const [hotels, setHotels] = useState<Place[]>([]);
   const [routes, setRoutes] = useState<Route[]>([]);
+  const [experiences, setExperiences] = useState<Experiences>(emptyExperiences);
   const [diaryEntries, setDiaryEntries] = useState<DiaryEntry[]>([]);
   const [isJourneyMode, setIsJourneyMode] = useState(false);
   const [selectedJourneyPlaces, setSelectedJourneyPlaces] = useState<string[]>([]);
@@ -970,6 +973,7 @@ const App = () => {
         setHotels(data.hotels || []);
         setRoutes(data.routes || []);
         setDiaryEntries(data.diaryEntries || []);
+        setExperiences(data.experiences || emptyExperiences());
         setIsAuthError(false);
         if (appPassword) { setShowSignIn(false); setPwInput(''); }
       })
@@ -1549,7 +1553,7 @@ const App = () => {
   };
 
   const placeCategories = ['All', 'Food', 'Drinks', 'Activities', 'Shopping', 'Sport', 'Events', 'Hotels', 'Other'];
-  const activeSection: TrackerSection = filter === 'Saved' ? 'Pins' : filter === 'Nearby' || filter === 'Trips' || filter === 'Diary' ? filter : 'Places';
+  const activeSection: TrackerSection = filter === 'Saved' ? 'Pins' : filter === 'Nearby' || filter === 'Trips' || filter === 'Diary' || filter === 'Experiences' ? filter : 'Places';
   const isPlaceCollection = activeSection === 'Places' || activeSection === 'Nearby';
   const browseAllTrackers = isPlaceCollection && allTrackers;
   const matchesSearch = (item: Parameters<typeof matchesCollectionSearch>[0]) => matchesCollectionSearch(item, listSearch);
@@ -1561,7 +1565,7 @@ const App = () => {
   const collectionDistance = (item: Place) => (filter === 'Nearby' || collectionPreferences.sort === 'distance') && nearbyLocation && Number.isFinite(item.lat) && Number.isFinite(item.lng) && (item.lat !== 0 || item.lng !== 0) ? `${(getDistance(nearbyLocation, item) * 0.621371).toFixed(1)} mi` : undefined;
   const toDoCount = scopedItems.filter(item => item.status === 'To Do').length;
   const visitedCount = scopedItems.filter(item => item.status === 'Visited').length;
-  const sectionCounts = { Places: scopedItems.length, Trips: routes.filter(route => route.scope === activeScope).length, Diary: diaryEntries.filter(entry => entry.scope === activeScope).length, Pins: markers.filter(marker => marker.scope === activeScope).length };
+  const sectionCounts = { Experiences: experiences.organisers.length, Places: scopedItems.length, Trips: routes.filter(route => route.scope === activeScope).length, Diary: diaryEntries.filter(entry => entry.scope === activeScope).length, Pins: markers.filter(marker => marker.scope === activeScope).length };
   const navigateSection = (section: TrackerSection) => {
     setFilter(section === 'Places' ? 'All' : section === 'Pins' ? 'Saved' : section);
     setListSearch('');
@@ -2152,12 +2156,12 @@ const App = () => {
           <header className="tracker-topbar">
             <h1>{activeSection}</h1>
             <div className="topbar-actions">
-              <label className="scope-picker"><MapPin size={16} /><select aria-label="Tracker region" value={browseAllTrackers ? "all" : activeScope} onChange={event => { setAllTrackers(event.target.value === "all"); if (event.target.value !== "all") setActiveScope(event.target.value as ScopeName); setActiveRouteId(null); setMapTarget(null); setHoveredId(null); setSelectedMapId(null); setIsJourneyMode(false); }} >{isPlaceCollection && <option value="all">All trackers</option>}{SCOPE_NAMES.map(scope => <option key={scope} value={scope}>{SCOPE_CONFIG[scope].label}</option>)}</select><ChevronDown size={14} /></label>
+              {activeSection !== 'Experiences' && <label className="scope-picker"><MapPin size={16} /><select aria-label="Tracker region" value={browseAllTrackers ? "all" : activeScope} onChange={event => { setAllTrackers(event.target.value === "all"); if (event.target.value !== "all") setActiveScope(event.target.value as ScopeName); setActiveRouteId(null); setMapTarget(null); setHoveredId(null); setSelectedMapId(null); setIsJourneyMode(false); }} >{isPlaceCollection && <option value="all">All trackers</option>}{SCOPE_NAMES.map(scope => <option key={scope} value={scope}>{SCOPE_CONFIG[scope].label}</option>)}</select><ChevronDown size={14} /></label>}
               <button type="button" className="mobile-utility icon-button" onClick={() => setIsDarkMode(current => !current)} aria-label={isDarkMode ? 'Use light mode' : 'Use dark mode'}>{isDarkMode ? <Sun size={18} /> : <Moon size={18} />}</button>
               {isOwner ? <button type="button" className="mobile-utility icon-button" onClick={() => setShowDebugPanel(true)} aria-label="Settings"><Settings size={18} /></button> : <button type="button" className="mobile-utility icon-button" onClick={() => { setIsAuthError(false); setShowSignIn(true); }} aria-label="Owner sign in"><LogIn size={18} /></button>}
             </div>
           </header>
-          {isPlaceCollection ? <CollectionToolbar
+          {activeSection === 'Experiences' ? null : isPlaceCollection ? <CollectionToolbar
             search={listSearch} onSearch={setListSearch} status={filter} onStatus={setFilter}
             counts={{ all: scopedItems.length, todo: toDoCount, visited: visitedCount }}
             category={placeCategory} onCategory={setPlaceCategory} categories={placeCategories} categoryCounts={categoryCounts}
@@ -2180,6 +2184,7 @@ const App = () => {
           </>}
           <main className="tracker-main">
             {error && !detailItem && <div role="alert" className="tracker-error">{error}<button type="button" onClick={() => setError(null)} aria-label="Dismiss error"><X size={16} /></button></div>}
+            {activeSection === 'Experiences' ? <ExperiencesPanel data={experiences} password={appPassword} isOwner={isOwner} loading={isLoading} diaryEntries={diaryEntries} onChange={setExperiences} onDiary={id => { const entry = diaryEntries.find(d => d.id === id); if (entry) setActiveScope(entry.scope as ScopeName); navigateSection('Diary'); setView('list'); requestAnimationFrame(() => document.getElementById(`diary-entry-${id}`)?.scrollIntoView({ block: 'center' })); }} /> : <>
             <div ref={listPanelRef} style={{ width: `${effectiveSidebarWidth}%` }} data-view={view} className={`collection-panel ${view === 'map' ? 'is-hidden' : ''}`}>
           {isLoading ? <div className="collection-empty" role="status"><Loader2 size={28} className="animate-spin" /><p>Loading your tracker…</p></div> : filter === 'Diary' ? (
             <section className="space-y-5">
@@ -2193,7 +2198,7 @@ const App = () => {
                 <div key={date} className="space-y-2">
                   <h3 className="text-xs font-semibold text-indigo-400 uppercase tracking-[0.16em] px-1">{format(parseISO(date), 'EEEE, d MMMM yyyy')}</h3>
                   {entries.map(entry => (
-                    <div key={entry.id} className={`bg-white p-4 rounded-2xl border border-slate-100 shadow-sm ${entry.lat && entry.lng ? 'cursor-pointer hover:border-indigo-200' : ''}`}>
+                    <div id={`diary-entry-${entry.id}`} key={entry.id} className={`bg-white p-4 rounded-2xl border border-slate-100 shadow-sm ${entry.lat && entry.lng ? 'cursor-pointer hover:border-indigo-200' : ''}`}>
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <h4 className="font-bold text-base text-slate-900">{entry.lat && entry.lng ? <button type="button" className="text-left hover:text-indigo-600" onClick={() => locateItem(entry)}>{entry.title}</button> : entry.title}</h4>
@@ -2598,6 +2603,7 @@ const App = () => {
             ))}
           </MapContainer>
         </div>
+      </>}
       </main>
         </div>
       </div>

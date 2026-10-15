@@ -1,0 +1,83 @@
+.section-label-mobile { display:none; }
+.experiences-panel { flex:1; min-height:0; overflow-y:auto; padding:24px 28px 40px; color:var(--text); scrollbar-width:thin; }
+.experiences-intro { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:16px; }
+.experience-eyebrow { display:flex; align-items:center; gap:7px; color:var(--accent); font-weight:650; font-size:.8125rem; margin:0 0 8px; }
+.experiences-intro h2 { font-size:1.5rem; font-weight:700; letter-spacing:-.035em; margin:0 0 6px; }
+.experiences-intro p:last-child, .experience-summary, .experience-meta { color:var(--muted); font-size:.875rem; }
+.experience-summary { margin:20px 0; }
+.experience-actions { display:flex; align-items:center; flex-wrap:wrap; gap:10px; }
+.experience-actions a { display:inline-flex; align-items:center; gap:5px; font-size:.8125rem; color:var(--accent); text-decoration:underline; overflow-wrap:anywhere; }
+.experience-actions button { white-space:normal; }
+.experience-search { display:flex; align-items:center; gap:10px; padding:0 14px; border:1px solid var(--border); background:var(--surface); border-radius:10px; color:var(--muted); }
+.experience-search input { width:100%; min-width:0; height:44px; background:transparent; color:var(--text); border:0; }
+.experience-filters { margin-top:12px; background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:12px 14px; }
+.experience-filters summary { display:flex; align-items:center; justify-content:space-between; cursor:pointer; font-size:.875rem; font-weight:600; }
+.experience-filter-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; padding-top:16px; align-items:end; }
+.experience-filter-grid label, .experience-dialog label { display:flex; flex-direction:column; gap:6px; font-size:.875rem; color:var(--muted); min-width:0; }
+.experiences-panel select, .experience-filter-grid input, .experience-dialog input, .experience-dialog textarea, .experience-dialog select { width:100%; min-width:0; padding:9px 10px; border:1px solid var(--border); border-radius:8px; background:var(--surface); color:var(--text); }
+.experience-checkbox { flex-direction:row !important; align-items:center; gap:8px !important; min-height:40px; }
+.experience-checkbox input { width:17px; height:17px; accent-color:var(--accent-solid); }
+.experience-results { display:flex; align-items:center; justify-content:space-between; margin-top:12px; color:var(--muted); font-size:.8125rem; }
+.experience-results button, .experience-delete { background:transparent; color:var(--muted); border:0; text-decoration:underline; font-size:.8125rem; padding:4px; }
+.experience-delete { color:var(--text); }
+.experience-notice { font-size:.8125rem; color:var(--muted); line-height:1.6; margin:10px 0 16px; }
+.experience-venues { display:grid; gap:12px; }
+.experience-venue { background:var(--surface); border:1px solid var(--border); border-radius:14px; overflow:hidden; }
+.experience-venue > summary, .experience-offering > summary { display:flex; gap:12px; align-items:center; padding:18px; cursor:pointer; list-style:none; }
+.experience-venue summary::-webkit-details-marker, .experience-offering summary::-webkit-details-marker { display:none; }
+.experience-venue[open] > summary > svg:last-child, .experience-offering[open] > summary > svg:last-child { transform:rotate(180deg); }
+.experience-venue summary > svg, .experience-offering summary > svg { flex-shrink:0; color:var(--muted); }
+.experience-venue-icon { display:grid; place-items:center; background:var(--accent-soft); color:var(--accent); width:42px; height:42px; border-radius:12px; flex-shrink:0; }
+.experience-venue-heading { display:flex; flex-direction:column; flex:1; min-width:0; gap:4px; }
+.experience-venue-heading strong { font-size:.9375rem; font-weight:650; overflow-wrap:anywhere; }
+.experience-venue-heading > span { font-size:.8125rem; color:var(--muted); }
+.experience-next { display:flex; align-items:center; gap:5px; color:var(--accent) !important; flex-wrap:wrap; }
+.experience-tag { display:inline-flex; padding:3px 8px; background:var(--accent-soft); color:var(--accent); border-radius:6px; font-size:.75rem; flex-shrink:0; }
+.experience-venue-body { border-top:1px solid var(--border); padding:16px 18px 18px; }
+.experience-venue-body > .experience-actions { margin:14px 0; }
+.experience-notes { white-space:pre-wrap; overflow-wrap:anywhere; font-size:.875rem; margin:8px 0; }
+.experience-offering { border:1px solid var(--border); border-radius:10px; margin-top:12px; }
+.experience-offering > summary { padding:14px; background:var(--surface-soft); }
+.experience-offering-body { padding:14px; }
+.experience-completion { display:flex; gap:6px; align-items:center; color:var(--accent); font-size:.8125rem; margin:10px 0; }
+.experience-completion + .experience-actions { margin-bottom:14px; }
+.experience-sessions { display:grid; gap:12px; margin-top:14px; }
+.experience-session { border-top:1px solid var(--border); padding-top:14px; }
+.experience-session-head { display:flex; justify-content:space-between; align-items:center; gap:10px; }
+.experience-session-head strong { font-size:.875rem; font-weight:600; overflow-wrap:anywhere; }
+.experience-session > p { color:var(--muted); font-size:.8125rem; display:flex; gap:6px; align-items:center; margin:8px 0; }
+.experience-session > .experience-notes { display:block; }
+.experience-empty { padding:40px 20px; text-align:center; border:1px dashed var(--border); border-radius:14px; color:var(--muted); }
+.experience-empty svg { margin:auto; color:var(--accent); }
+.experience-empty h3 { font-weight:650; margin:12px 0; color:var(--text); }
+.experience-dialog { width: min(580px,calc(100% - 24px)); max-height:calc(100dvh - 32px); border:1px solid var(--border); border-radius:16px; background:var(--surface); color:var(--text); padding:22px; overflow-y:auto; }
+.experience-dialog::backdrop { background:rgb(0 0 0 / .55); backdrop-filter:blur(3px); }
+.experience-dialog-heading { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:16px; }
+.experience-dialog h2 { font-size:1.125rem; font-weight:650; }
+.experience-editor-fields { display:grid; gap:14px; margin:16px 0; }
+.experience-dialog small { font-size:.75rem; }
+.experience-dialog textarea { min-height:90px; resize:vertical; }
+.experience-dialog-footer { display:flex; gap:10px; justify-content:flex-end; margin-top:22px; }
+.experience-error { padding:10px; border:1px solid #dc6262; border-radius:8px; color:var(--text); font-size:.875rem; }
+@media(max-width:899px) {
+  .experiences-panel { padding:18px 16px 30px; }
+  .experiences-intro h2 { font-size:1.25rem; }
+  .experience-filter-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .experience-venue > summary { padding:14px 12px; gap:9px; flex-wrap:wrap; }
+  .experience-venue > summary .experience-tag { margin-left:51px; }
+  .experience-venue > summary > svg:last-child { margin-left:auto; }
+  .experience-venue-heading { flex-basis:calc(100% - 60px); }
+  .experience-offering > summary { flex-wrap:wrap; gap:8px; }
+  .experience-offering > summary .experience-venue-heading { flex-basis:calc(100% - 24px); }
+  .experience-offering > summary > svg:last-child { margin-left:auto; }
+  .experience-venue-body { padding:12px; }
+  .experience-offering-body { padding:12px; }
+  .experience-session-head { flex-wrap:wrap; }
+  .experience-dialog { padding:16px; }
+  .section-label-desktop { display:none; }
+  .section-label-mobile { display:block; }
+}
+@media(max-width:380px) {
+  .section-link { font-size:.6875rem; }
+  .section-link > span { white-space:nowrap; }
+}
