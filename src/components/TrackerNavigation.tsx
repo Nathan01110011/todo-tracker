@@ -1,12 +1,13 @@
-import { MapPin, LocateFixed, Route, BookOpen, Bookmark, Settings, Moon, Sun, LogIn, LogOut } from 'lucide-react';
+import { MapPin, LocateFixed, Route, BookOpen, Bookmark, Settings, Moon, Sun, LogIn, LogOut, Sparkles } from 'lucide-react';
 
-export type TrackerSection = 'Places' | 'Nearby' | 'Trips' | 'Diary' | 'Pins';
+export type TrackerSection = 'Places' | 'Nearby' | 'Trips' | 'Diary' | 'Experiences' | 'Pins';
 
 const sections = [
   { name: 'Places', icon: MapPin },
   { name: 'Nearby', icon: LocateFixed },
   { name: 'Trips', icon: Route },
   { name: 'Diary', icon: BookOpen },
+  { name: 'Experiences', icon: Sparkles },
   { name: 'Pins', icon: Bookmark },
 ] as const;
 
@@ -28,9 +29,9 @@ export default function TrackerNavigation(props: Props) {
       <div className="tracker-brand"><span className="brand-symbol"><MapPin size={24} strokeWidth={2} /></span><span>ToDo<span className="brand-secondary">Tracker</span></span></div>
       <nav className="section-navigation" aria-label="Main navigation">
         {sections.map(({ name, icon: Icon }) => (
-          <button key={name} type="button" onClick={() => props.onNavigate(name)} className={`section-link ${props.activeSection === name ? 'is-active' : ''}`} aria-current={props.activeSection === name ? 'page' : undefined}>
+          <button key={name} type="button" aria-label={name === 'Experiences' ? 'Experiences · Explore' : name} onClick={() => props.onNavigate(name)} className={`section-link ${props.activeSection === name ? 'is-active' : ''}`} aria-current={props.activeSection === name ? 'page' : undefined}>
             <Icon size={20} strokeWidth={props.activeSection === name ? 2.3 : 1.8} />
-            <span>{name}</span>
+            <span className={name === 'Experiences' ? 'section-label-desktop' : undefined}>{name}</span>{name === 'Experiences' && <span className="section-label-mobile">Explore</span>}
             {props.counts[name] !== undefined && <span className="section-count">{props.counts[name]}</span>}
           </button>
         ))}
