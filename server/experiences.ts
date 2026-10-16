@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { GoogleSpreadsheet } from 'google-spreadsheet';
-import { austinToday, emptyExperiences, interests, offeringStatuses, safeUrl, sessionStatuses, type ExperienceKind, type ExperienceRecord, type Experiences, type Offering, type Organiser, type Session } from '../src/lib/experiences';
-import { experienceSeeds } from '../src/lib/experienceSeeds';
+import { austinToday, emptyExperiences, interests, offeringStatuses, safeUrl, sessionStatuses, type ExperienceKind, type ExperienceRecord, type Experiences, type Offering, type Organiser, type Session } from '../src/lib/experiences.js';
+import { experienceSeeds } from '../src/lib/experienceSeeds.js';
 
 const sheets: Record<ExperienceKind, string> = { organisers: 'ExperienceOrganisers', offerings: 'ExperienceOfferings', sessions: 'ExperienceSessions' };
 export class ExperienceError extends Error { constructor(message: string, public status = 400) { super(message); } }
