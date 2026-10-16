@@ -1,4 +1,4 @@
-import { emptyExperiences, type Experiences } from './experiences';
+import { emptyExperiences, type Experiences } from './experiences.js';
 // Stable IDs are import keys. Dates below are research leads from issue #30, not live inventory.
 export function experienceSeeds(): Experiences {
   const data = emptyExperiences();

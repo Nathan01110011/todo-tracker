@@ -1,4 +1,4 @@
-import { readExperiences, mutateExperiences, ExperienceError } from '../server/experiences';
+import { readExperiences, mutateExperiences, ExperienceError } from '../server/experiences.js';
 import { GoogleSpreadsheet } from 'google-spreadsheet';
 import { JWT } from 'google-auth-library';
 import { v2 as cloudinary } from 'cloudinary';
