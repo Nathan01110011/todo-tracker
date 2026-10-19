@@ -22,6 +22,8 @@ interface Props {
 export default function CollectionToolbar(props: Props) {
   const [optionsOpen, setOptionsOpen] = useState(false);
   const optionsId = useId();
+  const categoryId = useId();
+  const categoryTotal = Object.values(props.categoryCounts).reduce((total, count) => total + count, 0);
   const needsLocation = props.sort === 'distance' && !props.locationReady && !props.nearby;
   const hasFilters = props.search.trim() || props.category !== 'All' || (!props.nearby && props.status !== 'All');
   const mobileMap = props.view === 'map';
@@ -36,7 +38,28 @@ export default function CollectionToolbar(props: Props) {
       </div>
       <div className="browse-filters">
         {props.nearby ? <label className="nearby-visited-filter"><input type="checkbox" checked={props.includeVisited} onChange={event => props.onIncludeVisited(event.target.checked)} />Show visited</label> : <div className="status-switch" role="group" aria-label="Visit status">{[{ id: 'All', label: 'All', count: props.counts.all }, { id: 'TODO', label: 'To do', count: props.counts.todo }, { id: 'Visited', label: 'Visited', count: props.counts.visited }].map(option => <button key={option.id} type="button" onClick={() => props.onStatus(option.id)} className={props.status === option.id ? 'is-active' : ''} aria-pressed={props.status === option.id}>{option.label}<span>{option.count}</span></button>)}</div>}
-        <label className="browse-category"><span className="sr-only">Category</span><select aria-label="Place category" value={props.category} onChange={event => props.onCategory(event.target.value)}>{props.categories.map(category => <option key={category} value={category}>{category === 'All' ? 'All categories' : category}{category !== 'All' ? ` (${props.categoryCounts[category] || 0})` : ''}</option>)}</select></label>
+      </div>
+      <div className="browse-categories" role="group" aria-labelledby={categoryId}>
+        <span id={categoryId} className="browse-category-label">Filter by category</span>
+        <div className="browse-category-options">
+          {props.categories.map(category => {
+            const label = category === 'All' ? 'All categories' : category;
+            const count = category === 'All' ? categoryTotal : props.categoryCounts[category] || 0;
+            return (
+              <button
+                key={category}
+                type="button"
+                className={`browse-category-chip ${props.category === category ? 'is-active' : ''}`}
+                aria-label={`${label}, ${count} ${count === 1 ? 'place' : 'places'}`}
+                aria-pressed={props.category === category}
+                onClick={() => props.onCategory(category)}
+              >
+                <span>{category === 'All' && props.mobile ? 'All' : label}</span>
+                <span className="browse-category-count" aria-hidden="true">{props.isLoading ? '–' : count}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
       <div className="browse-results">
         <p role="status" aria-live="polite">{props.isLoading ? 'Loading…' : `${props.resultCount} ${props.resultCount === 1 ? 'place' : 'places'}`}<span> · {props.nearby ? 'Nearest' : needsLocation ? 'Location needed' : sortLabels[props.sort]}</span></p>
