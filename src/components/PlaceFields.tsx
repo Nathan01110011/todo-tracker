@@ -2,12 +2,13 @@ import { useEffect, useState } from 'react';
 import { RotateCcw, Star } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import type { Place } from '../types';
+import { isWouldReturn } from '../lib/collection';
 
 interface Props { item: Place; isOwner: boolean; onUpdate: (updates: Partial<Place>) => void }
 
 export default function PlaceFields({ item, isOwner, onUpdate }: Props) {
   const visited = item.status === 'Visited';
-  const wouldReturn = item.return === true || item.return === 'TRUE';
+  const wouldReturn = isWouldReturn(item);
   const [notes, setNotes] = useState(item.notes || '');
   useEffect(() => { setNotes(item.notes || ''); }, [item.notes]);
   return (
