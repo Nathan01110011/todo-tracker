@@ -50,7 +50,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const ensurePlaceColumns = async (sheet: any, includeEventDates = false) => {
       if (!sheet) return;
       await sheet.loadHeaderRow();
-      const requiredColumns = includeEventDates ? ['priority', 'isChain', 'eventStartDate', 'eventEndDate'] : ['priority', 'isChain'];
+      const requiredColumns = includeEventDates ? ['priority', 'isChain', 'return', 'date', 'eventStartDate', 'eventEndDate'] : ['priority', 'isChain', 'return', 'date'];
       const missingColumns = requiredColumns.filter(column => !sheet.headerValues.includes(column));
       if (missingColumns.length > 0) {
         await sheet.setHeaderRow([...sheet.headerValues, ...missingColumns]);
