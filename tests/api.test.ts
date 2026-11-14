@@ -33,3 +33,85 @@ test('existing API protects experience writes, leaves public reads and legacy co
   const invalid = await request('POST',{ type:'experience',action:'save',kind:'sessions',record:{ title:'orphan' } },'test-owner');
   assert.equal(invalid.status,400);
 });
+
+
+test('photo uploads mark places visited, keep the original visit date, and create one diary entry per day', async () => {
+  sharedDoc.sheetsByTitle = {};
+  const places = await sharedDoc.addSheet({ title:'Places', headerValues:['id','name','address','category','lat','lng','status','date','scope'] });
+  const photos = await sharedDoc.addSheet({ title:'Photos', headerValues:['locationId','url'] });
+  await places.addRow({ id:'museum', name:'Museum', address:'Main St', category:'Activities', lat:'30.2', lng:'-97.7', status:'To Do', date:'', scope:'Austin' });
+  await places.addRow({ id:'cafe', name:'Cafe', category:'Food', status:'To Do', date:'', scope:'Austin' });
+  await places.addRow({ id:'favourite', name:'Old Favourite', category:'Food', status:'Visited', date:'2026-01-12', scope:'Austin' });
+
+  const owner = 'test-owner';
+  const first = await request('POST', { id:'museum', type:'place', photoUrl:'https://example.com/1.jpg', capturedAt:'2026:11:10 18:00:00', visitDate:'2026-11-13', recordDiary:true }, owner);
+  assert.equal(first.status,200);
+  assert.deepEqual(first.data.visit,{ status:'Visited', date:'2026-11-10' });
+  assert.equal(first.data.diaryEntry?.date,'2026-11-10');
+  assert.equal(first.data.diaryEntry?.placeId,'museum');
+  assert.equal(places.rows[0].get('status'),'Visited');
+  assert.equal(places.rows[0].get('date'),'2026-11-10');
+  assert.equal(photos.rows.length,1);
+  assert.equal(photos.rows[0].get('capturedAt'),'2026:11:10 18:00:00');
+  const diary = sharedDoc.sheetsByTitle.Diary;
+  assert.equal(diary.rows.length,1);
+  assert.equal(diary.rows[0].get('name'),'Museum');
+
+  // Multiple photos (and retried upload links) on one day must not duplicate diary visits.
+  const second = await request('POST', { id:'museum', type:'place', photoUrl:'https://example.com/2.jpg', capturedAt:'2026:11:10 19:00:00', visitDate:'2026-11-13' }, owner);
+  assert.equal(second.status,200);
+  assert.equal(second.data.diaryEntry,null);
+  assert.equal(diary.rows.length,1);
+  const retry = await request('POST', { id:'museum', type:'place', photoUrl:'https://example.com/2.jpg', capturedAt:'2026:11:10 19:00:00' }, owner);
+  assert.equal(retry.status,200);
+  assert.equal(photos.rows.length,2);
+  assert.equal(diary.rows.length,1);
+
+  // A subsequent visit gets its own diary entry, but not a replacement place visit date.
+  const later = await request('POST', { id:'museum', type:'place', photoUrl:'https://example.com/3.jpg', capturedAt:'2026:11:12 14:00:00' }, owner);
+  assert.equal(later.data.diaryEntry?.date,'2026-11-12');
+  assert.equal(later.data.visit.date,'2026-11-10');
+  assert.equal(places.rows[0].get('date'),'2026-11-10');
+  assert.equal(diary.rows.length,2);
+
+  // EXIF-free images use the browser's local upload date.
+  const noExif = await request('POST', { id:'cafe', type:'place', photoUrl:'https://example.com/no-exif.jpg', visitDate:'2026-11-13' }, owner);
+  assert.equal(noExif.data.visit.date,'2026-11-13');
+  assert.equal(noExif.data.diaryEntry?.date,'2026-11-13');
+  assert.equal(places.rows[1].get('status'),'Visited');
+
+  // An existing manually entered date must survive the new upload.
+  const favourite = await request('POST', { id:'favourite', type:'place', photoUrl:'https://example.com/fave.jpg', capturedAt:'2026:11:09 11:00:00' }, owner);
+  assert.equal(favourite.data.visit.date,'2026-01-12');
+  assert.equal(places.rows[2].get('date'),'2026-01-12');
+  assert.equal(favourite.data.diaryEntry?.date,'2026-11-09');
+
+  // Don't leave orphan photo records if the location cannot be found.
+  const unknown = await request('POST', { id:'unknown', type:'place', photoUrl:'https://example.com/orphan.jpg' }, owner);
+  assert.equal(unknown.status,404);
+  assert.equal(photos.rows.length,5);
+});
+
+test('hotel photos are supported, diary auto-sync can be disabled, and manual visit toggles set dates', async () => {
+  sharedDoc.sheetsByTitle = {};
+  const places = await sharedDoc.addSheet({ title:'Places', headerValues:['id','name','status','date','scope'] });
+  const hotels = await sharedDoc.addSheet({ title:'Hotels', headerValues:['id','name','status','date','scope'] });
+  await sharedDoc.addSheet({ title:'Photos', headerValues:['locationId','url'] });
+  await places.addRow({ id:'manual', name:'Manual place', status:'To Do', date:'', scope:'Austin' });
+  await hotels.addRow({ id:'hotel-one', name:'Hotel', status:'To Do', date:'', scope:'Austin' });
+
+  const photo = await request('POST', { id:'hotel-one', type:'hotel', photoUrl:'https://example.com/hotel.jpg', visitDate:'2026-11-13', recordDiary:false }, 'test-owner');
+  assert.equal(photo.status,200);
+  assert.equal(photo.data.visit.status,'Visited');
+  assert.equal(photo.data.visit.date,'2026-11-13');
+  assert.equal(photo.data.diaryEntry,null);
+  assert.equal(sharedDoc.sheetsByTitle.Diary,undefined);
+  assert.equal(hotels.rows[0].get('status'),'Visited');
+
+  const marked = await request('POST', { id:'manual', status:'Visited' }, 'test-owner');
+  assert.equal(marked.status,200);
+  assert.equal(places.rows[0].get('date'),new Date().toISOString().slice(0,10));
+  const unmarked = await request('POST', { id:'manual', status:'To Do' }, 'test-owner');
+  assert.equal(unmarked.status,200);
+  assert.equal(places.rows[0].get('date'),'');
+});
