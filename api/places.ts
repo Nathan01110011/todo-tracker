@@ -511,14 +511,81 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           await photoRow.save();
           return res.status(200).json({ success: true });
         }
-        await photosSheet.addRow({
-          locationId: id,
-          url: photoUrl,
-          comment: normalizedComment,
-          capturedAt: String(capturedAt || ''),
-          uploadedAt: String(uploadedAt || new Date().toISOString())
-        });
-        return res.status(200).json({ success: true });
+        // A photo attached to a saved place is also a recorded visit.
+        // Validate the location before writing anything to the Photos sheet.
+        if (type !== 'place' && type !== 'hotel') return res.status(400).json({ error: 'Invalid photo location type.' });
+        const locationSheet = type === 'hotel' ? hotelsSheet : placesSheet;
+        if (!locationSheet) return res.status(404).json({ error: 'Location sheet not found.' });
+        const locationRow = (await locationSheet.getRows()).find(row => row.get('id') === id);
+        if (!locationRow) return res.status(404).json({ error: 'Photo location not found.' });
+
+        const captureMatch = String(capturedAt || '').match(/^(\d{4})[:-](\d{2})[:-](\d{2})(?:[ T]|$)/);
+        const captureDate = captureMatch ? `${captureMatch[1]}-${captureMatch[2]}-${captureMatch[3]}` : '';
+        const localVisitDate = String(req.body.visitDate || '').trim();
+        const today = new Date().toISOString().slice(0, 10);
+        const isValidDate = (candidate: string) => /^\d{4}-\d{2}-\d{2}$/.test(candidate)
+          && !Number.isNaN(Date.parse(`${candidate}T00:00:00Z`))
+          && new Date(`${candidate}T00:00:00Z`).toISOString().slice(0, 10) === candidate;
+        const visitDate = isValidDate(captureDate) && captureDate <= today
+          ? captureDate
+          : isValidDate(localVisitDate) ? localVisitDate : today;
+        // Don't overwrite a manually entered date or the first recorded visit.
+        const savedVisitDate = String(locationRow.get('date') || '').trim() || visitDate;
+
+        const existingPhotoRows = await photosSheet.getRows();
+        if (!existingPhotoRows.some(row => row.get('locationId') === id && row.get('url') === photoUrl)) {
+          await photosSheet.addRow({
+            locationId: id,
+            url: photoUrl,
+            comment: normalizedComment,
+            capturedAt: String(capturedAt || ''),
+            uploadedAt: String(uploadedAt || new Date().toISOString())
+          });
+        }
+
+        locationRow.set('status', 'Visited');
+        if (!locationRow.get('date')) locationRow.set('date', savedVisitDate);
+        await locationRow.save();
+
+        let diaryEntry: Record<string, any> | null = null;
+        let diaryWarning = '';
+        if (req.body.recordDiary !== false) {
+          try {
+            if (!diarySheet) {
+              diarySheet = await doc.addSheet({
+                title: 'Diary',
+                headerValues: ['id', 'date', 'title', 'notes', 'placeId', 'placeType', 'name', 'address', 'lat', 'lng', 'scope', 'createdAt']
+              });
+            }
+            const diaryRows = await diarySheet.getRows();
+            const alreadyLogged = diaryRows.some(row => row.get('placeId') === id && row.get('placeType') === type && row.get('date') === visitDate);
+            if (!alreadyLogged) {
+              const placeName = String(locationRow.get('name') || 'Untitled');
+              diaryEntry = {
+                id: Math.random().toString(36).substr(2, 9),
+                date: visitDate,
+                title: placeName,
+                notes: normalizedComment,
+                placeId: id,
+                placeType: type,
+                name: placeName,
+                address: String(locationRow.get('address') || ''),
+                lat: Number(locationRow.get('lat')) || 0,
+                lng: Number(locationRow.get('lng')) || 0,
+                scope: String(locationRow.get('scope') || 'Austin'),
+                createdAt: new Date().toISOString()
+              };
+              await diarySheet.addRow({ ...diaryEntry, lat: String(diaryEntry.lat), lng: String(diaryEntry.lng) });
+            }
+          } catch (error) {
+            // Don't report a successful photo/visit save as a failed upload.
+            console.error('Photo saved, but diary creation failed:', error);
+            diaryEntry = null;
+            diaryWarning = 'Photo and visit saved, but the diary could not be updated. Retry diary sync in Settings.';
+          }
+        }
+
+        return res.status(200).json({ success: true, visit: { status: 'Visited', date: savedVisitDate }, diaryEntry, diaryWarning });
       }
 
       if (type === 'diary') {
@@ -625,7 +692,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           if (address !== undefined) row.set('address', address);
           if (lat !== undefined) row.set('lat', String(lat));
           if (lng !== undefined) row.set('lng', String(lng));
-          if (status !== undefined) row.set('status', status);
+          if (status !== undefined) {
+            const wasVisited = row.get('status') === 'Visited';
+            row.set('status', status);
+            if (date === undefined && status === 'Visited' && !row.get('date')) row.set('date', new Date().toISOString().slice(0, 10));
+            if (date === undefined && status === 'To Do' && wasVisited) row.set('date', '');
+          }
           if (rating !== undefined) row.set('rating', rating);
           if (priority !== undefined) row.set('priority', /^[1-5]$/.test(String(priority)) ? String(priority) : '');
           if (notes !== undefined) row.set('notes', notes);

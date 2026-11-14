@@ -997,11 +997,19 @@ const App = () => {
 
   const updatePlace = async (id: string, data: any, type: 'place' | 'hotel' = 'place') => {
     if (!isOwner) return;
+    const currentItem = (type === 'hotel' ? hotels : places).find(item => item.id === id);
+    const updates = { ...data };
+    // Every manual Visited toggle must populate a date, including list and detail views.
+    if (updates.status === 'Visited' && updates.date === undefined) {
+      updates.date = currentItem?.date || format(new Date(), 'yyyy-MM-dd');
+    } else if (updates.status === 'To Do' && updates.date === undefined && currentItem?.status === 'Visited') {
+      updates.date = '';
+    }
     const prevPlaces = [...places]; const prevHotels = [...hotels];
-    if (type === 'hotel') setHotels(h => h.map(x => x.id === id ? { ...x, ...data } : x));
-    else setPlaces(p => p.map(x => x.id === id ? { ...x, ...data } : x));
+    if (type === 'hotel') setHotels(h => h.map(x => x.id === id ? { ...x, ...updates } : x));
+    else setPlaces(p => p.map(x => x.id === id ? { ...x, ...updates } : x));
     try {
-      const response = await fetch('/api/places', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': appPassword || '' }, body: JSON.stringify({ id, type, ...data }), });
+      const response = await fetch('/api/places', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': appPassword || '' }, body: JSON.stringify({ id, type, ...updates }), });
       if (!response.ok) throw new Error('Failed to update');
     } catch (error) {
       if (type === 'hotel') setHotels(prevHotels); else setPlaces(prevPlaces);
@@ -1208,23 +1216,36 @@ const App = () => {
   const handlePhotoUpload = async (item: Place, photo: PhotoDetails) => {
     if (!isOwner || !appPassword) return;
     try {
+      const today = format(new Date(), 'yyyy-MM-dd');
+      const capturedDate = photoCaptureDate(photo.capturedAt);
+      const visitDate = capturedDate && capturedDate <= today ? capturedDate : today;
       const response = await fetch('/api/places', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': appPassword }, body: JSON.stringify({
         id: item.id,
+        type: item.type || 'place',
         photoUrl: photo.url,
         capturedAt: photo.capturedAt,
         uploadedAt: photo.uploadedAt,
+        visitDate,
+        recordDiary: autoDiaryPhotoSync,
       }), });
+      const data = await response.json().catch(() => ({}));
       if (response.ok) {
         const withPhoto = (place: Place) => ({
           ...place,
-          photos: [...(place.photos ? place.photos.split(',').filter(Boolean) : []), photo.url].join(','),
-          photoDetails: [...photoDetailsFor(place), photo],
+          status: 'Visited',
+          date: data.visit?.date || place.date || visitDate,
+          photos: [...new Set([...(place.photos ? place.photos.split(',').filter(Boolean) : []), photo.url])].join(','),
+          photoDetails: [...photoDetailsFor(place).filter(existing => existing.url !== photo.url), photo],
         });
         if (item.type === 'hotel') setHotels(prev => prev.map(h => h.id === item.id ? withPhoto(h) : h));
         else setPlaces(prev => prev.map(p => p.id === item.id ? withPhoto(p) : p));
-        setActivePhotoItem(prev => (prev && prev.id === item.id ? withPhoto(prev) : prev));
+        setActivePhotoItem(prev => (prev && prev.id === item.id && (prev.type || 'place') === (item.type || 'place') ? withPhoto(prev) : prev));
+        if (data.diaryEntry) {
+          setDiaryEntries(current => current.some(entry => entry.placeId === data.diaryEntry.placeId && entry.placeType === data.diaryEntry.placeType && entry.date === data.diaryEntry.date)
+            ? current : [data.diaryEntry, ...current]);
+        }
+        if (data.diaryWarning) setToastMessage(data.diaryWarning);
       } else {
-        const data = await response.json().catch(() => ({}));
         throw new Error(data.error || 'Photo linked failed.');
       }
     } catch (err: any) { throw new Error(err.message || 'Photo linked failed.'); }
@@ -1527,7 +1548,7 @@ const App = () => {
       : [...route.completedPlaceIds, compositeId];
     const [type, id] = compositeId.includes(':') ? compositeId.split(':') : ['place', compositeId];
     if (type === 'place' || type === 'hotel') {
-      await updatePlace(id, { status: isComplete ? 'To Do' : 'Visited', date: isComplete ? '' : format(new Date(), 'yyyy-MM-dd') }, type);
+      await updatePlace(id, { status: isComplete ? 'To Do' : 'Visited' }, type);
     }
     await updateRoute(route, { completedPlaceIds });
   };
