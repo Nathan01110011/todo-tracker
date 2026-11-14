@@ -1,6 +1,11 @@
 import type { Place } from '../types';
 
 export type PlaceItem = Place & { type: 'place' | 'hotel' };
+
+/** A return visit only makes sense for a location already marked Visited. */
+export function isWouldReturn(item: Pick<Place, 'status' | 'return'>): boolean {
+  return item.status === 'Visited' && (item.return === true || item.return === 'TRUE');
+}
 export type CollectionSort = 'name' | 'priority' | 'rating' | 'visited' | 'distance';
 export type CollectionGroup = 'none' | 'category' | 'tracker' | 'alphabet';
 export type CollectionDensity = 'rows' | 'cards';
