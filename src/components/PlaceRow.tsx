@@ -1,6 +1,6 @@
-import { MapPin, Utensils, Wine, ShoppingBag, Trophy, Calendar, Bed, Compass, Check, Camera, Star, ChevronRight } from 'lucide-react';
+import { MapPin, Utensils, Wine, ShoppingBag, Trophy, Calendar, Bed, Compass, Check, Camera, Star, ChevronRight, RotateCcw } from 'lucide-react';
 import type { PlaceItem } from '../lib/collection';
-import { photoCount } from '../lib/collection';
+import { photoCount, isWouldReturn } from '../lib/collection';
 
 const categoryIcons = { Food: Utensils, Drinks: Wine, Activities: Compass, Shopping: ShoppingBag, Sport: Trophy, Events: Calendar, Hotels: Bed };
 
@@ -18,6 +18,7 @@ interface Props {
 export default function PlaceRow({ item, isOwner, showTracker, distance, onOpen, onHover, onUpdate, onPhotos }: Props) {
   const Icon = categoryIcons[item.category as keyof typeof categoryIcons] || MapPin;
   const visited = item.status === 'Visited';
+  const wouldReturn = isWouldReturn(item);
   const photos = photoCount(item);
   return (
     <article className="place-row" data-place-id={`${item.type}:${item.id}`} onMouseEnter={() => onHover(true)} onMouseLeave={() => onHover(false)}>
@@ -32,6 +33,7 @@ export default function PlaceRow({ item, isOwner, showTracker, distance, onOpen,
       </button>
       <div className="place-row-actions">
         {photos > 0 && <button type="button" className="row-photos" aria-label={`${photos} photos of ${item.name}`} onClick={onPhotos}><Camera size={16} /><span>{photos}</span></button>}
+        {visited && (isOwner ? <button type="button" className={`row-return ${wouldReturn ? 'is-active' : ''}`} aria-label={wouldReturn ? `Remove ${item.name} from Would Return` : `Add ${item.name} to Would Return`} aria-pressed={wouldReturn} title={wouldReturn ? 'Remove from Would Return' : 'Add to Would Return'} onClick={() => onUpdate({ return: !wouldReturn })}><RotateCcw size={16} /></button> : wouldReturn && <span className="row-return is-active" title="Would Return" aria-label="Would Return"><RotateCcw size={16} /></span>)}
         {isOwner ? <button type="button" className={`row-visit ${visited ? 'is-visited' : ''}`} aria-label={`Mark ${item.name} as ${visited ? 'to do' : 'visited'}`} aria-pressed={visited} onClick={() => onUpdate({ status: visited ? 'To Do' : 'Visited' })}>{visited ? <Check size={17} /> : <span className="visit-circle" />}</button> : <span className={`row-visit readonly ${visited ? 'is-visited' : ''}`} aria-label={visited ? 'Visited' : 'To do'}>{visited ? <Check size={17} /> : <span className="visit-circle" />}</span>}
       </div>
     </article>
