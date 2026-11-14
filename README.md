@@ -14,6 +14,7 @@ A modern, interactive relocation and travel tracker built with React, TypeScript
 - **🧳 Trips**: Build ordered routes or flexible unordered city breaks, check off stops as you go, and complete a trip without marking skipped places as visited.
 - **📖 Diary**: Log activities for today or earlier, attach tracker locations or arbitrary places, and capture the current location with browser geolocation.
 - **📷 Photo notes**: Add a short comment to each image and show its camera timestamp when the uploaded file provides one.
+- **🔁 Would Return**: A dedicated list and map of visited places and hotels you would go back to, with region, category, search, and sort controls. Toggle the flag directly from place rows/cards or their details.
 - **✅ Visited History**:
   - Grouped by category.
   - 1-5 Star Ratings.
