@@ -7,6 +7,7 @@ import 'leaflet/dist/leaflet.css';
 import TrackerNavigation, { type TrackerSection } from './components/TrackerNavigation';
 import ExperiencesPanel from './components/ExperiencesPanel';
 import { emptyExperiences, type Experiences } from './lib/experiences';
+import { SCOPE_CONFIG, SCOPE_NAMES, buildPlaceSearchUrl, type ScopeName } from './lib/scopeConfig';
 import PlaceCard from './components/PlaceCard';
 import PlaceRow from './components/PlaceRow';
 import PlaceCollection from './components/PlaceCollection';
@@ -94,35 +95,7 @@ interface DiaryEntry {
   createdAt: string;
 }
 
-const SCOPE_CONFIG = {
-  Austin: {
-    label: 'Austin',
-    center: [30.2672, -97.7431] as [number, number],
-    zoom: 12,
-    searchParams: '&viewbox=-98.3,30.7,-97.2,29.8&bounded=1'
-  },
-  Texas: {
-    label: 'Texas',
-    center: [31.0, -99.9018] as [number, number],
-    zoom: 6,
-    searchParams: '&viewbox=-106.65,36.5,-93.51,25.84&bounded=1'
-  },
-  USA: {
-    label: 'USA',
-    center: [37.0902, -95.7129] as [number, number],
-    zoom: 4,
-    searchParams: ''
-  },
-  'UK & Ireland': {
-    label: 'UK & Ireland',
-    center: [54.5, -4.5] as [number, number],
-    zoom: 5,
-    searchParams: '&viewbox=-11,61.2,2.2,49.8&bounded=1'
-  }
-};
 
-type ScopeName = keyof typeof SCOPE_CONFIG;
-const SCOPE_NAMES = Object.keys(SCOPE_CONFIG) as ScopeName[];
 
 const OPENSTREETMAP_TILE_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
 const cartoApiKey = import.meta.env.VITE_CARTO_API_KEY?.trim();
@@ -1093,8 +1066,8 @@ const App = () => {
     if (!diarySearch.trim()) return;
     setIsDiarySearching(true);
     try {
-      const scopeConfig = SCOPE_CONFIG[activeScope];
-      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(diarySearch)}${scopeConfig.searchParams}`);
+      const response = await fetch(buildPlaceSearchUrl(diarySearch, activeScope));
+      if (!response.ok) throw new Error('Diary place search failed');
       setDiarySearchResults(await response.json());
     } catch (error) {
       setToastMessage('Could not search for that location.');
@@ -2152,7 +2125,7 @@ const App = () => {
                 event.preventDefault(); if (!searchQuery.trim()) return;
                 setIsSearching(true);
                 try {
-                  const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}${SCOPE_CONFIG[activeScope].searchParams}`);
+                  const response = await fetch(buildPlaceSearchUrl(searchQuery, activeScope));
                   if (!response.ok) throw new Error('Search failed');
                   setSearchResults(await response.json());
                 } catch { setToastMessage('Could not search for that place. Please try again.'); }
