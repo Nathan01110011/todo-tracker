@@ -12,7 +12,7 @@ import PlaceRow from './components/PlaceRow';
 import PlaceCollection from './components/PlaceCollection';
 import PlaceDetailsPanel from './components/PlaceDetailsPanel';
 import CollectionToolbar from './components/CollectionToolbar';
-import { matchesCollectionSearch, sortCollection, sortLabels, type CollectionSort, type CollectionGroup, type CollectionDensity, type PlaceItem } from './lib/collection';
+import { isWouldReturn, matchesCollectionSearch, sortCollection, sortLabels, type CollectionSort, type CollectionGroup, type CollectionDensity, type PlaceItem } from './lib/collection';
 import type { Place, PhotoDetails } from './types';
 import {
   Check, CheckCircle2, Circle, Map as MapIcon, List, Filter, Home, Briefcase,
@@ -1574,27 +1574,28 @@ const App = () => {
   };
 
   const placeCategories = ['All', 'Food', 'Drinks', 'Activities', 'Shopping', 'Sport', 'Events', 'Hotels', 'Other'];
-  const activeSection: TrackerSection = filter === 'Saved' ? 'Pins' : filter === 'Nearby' || filter === 'Trips' || filter === 'Diary' || filter === 'Experiences' ? filter : 'Places';
-  const isPlaceCollection = activeSection === 'Places' || activeSection === 'Nearby';
+  const activeSection: TrackerSection = filter === 'Saved' ? 'Pins' : filter === 'Return' ? 'Would Return' : filter === 'Nearby' || filter === 'Trips' || filter === 'Diary' || filter === 'Experiences' ? filter : 'Places';
+  const isPlaceCollection = activeSection === 'Places' || activeSection === 'Nearby' || activeSection === 'Would Return';
   const browseAllTrackers = isPlaceCollection && allTrackers;
   const matchesSearch = (item: Parameters<typeof matchesCollectionSearch>[0]) => matchesCollectionSearch(item, listSearch);
   const allPlaceItems = useMemo(() => [...places.map(item => ({ ...item, type: 'place' as const })), ...hotels.map(item => ({ ...item, type: 'hotel' as const, category: 'Hotels' }))], [places, hotels]);
   const scopedItems = useMemo(() => allPlaceItems.filter(item => browseAllTrackers || item.scope === activeScope), [allPlaceItems, browseAllTrackers, activeScope]);
   const detailItem = allPlaceItems.find(item => `${item.type}:${item.id}` === detailItemId);
-  const categoryCounts = useMemo(() => scopedItems.filter(item => matchesCollectionSearch(item, listSearch) && (filter === 'TODO' ? item.status === 'To Do' : filter === 'Visited' ? item.status === 'Visited' : filter === 'Nearby' ? nearbyIncludeVisited || item.status !== 'Visited' : true)).reduce<Record<string, number>>((counts, item) => { const category = item.category || 'Other'; counts[category] = (counts[category] || 0) + 1; return counts; }, {}), [scopedItems, listSearch, filter, nearbyIncludeVisited]);
+  const categoryCounts = useMemo(() => scopedItems.filter(item => matchesCollectionSearch(item, listSearch) && (filter === 'TODO' ? item.status === 'To Do' : filter === 'Visited' ? item.status === 'Visited' : filter === 'Return' ? isWouldReturn(item) : filter === 'Nearby' ? nearbyIncludeVisited || item.status !== 'Visited' : true)).reduce<Record<string, number>>((counts, item) => { const category = item.category || 'Other'; counts[category] = (counts[category] || 0) + 1; return counts; }, {}), [scopedItems, listSearch, filter, nearbyIncludeVisited]);
   const resetCollectionFilters = () => { setListSearch(''); setPlaceCategory('All'); if (activeSection === 'Places') setFilter('All'); };
   const collectionDistance = (item: Place) => (filter === 'Nearby' || collectionPreferences.sort === 'distance') && nearbyLocation && Number.isFinite(item.lat) && Number.isFinite(item.lng) && (item.lat !== 0 || item.lng !== 0) ? `${(getDistance(nearbyLocation, item) * 0.621371).toFixed(1)} mi` : undefined;
   const toDoCount = scopedItems.filter(item => item.status === 'To Do').length;
   const visitedCount = scopedItems.filter(item => item.status === 'Visited').length;
-  const sectionCounts = { Experiences: experiences.organisers.length, Places: scopedItems.length, Trips: routes.filter(route => route.scope === activeScope).length, Diary: diaryEntries.filter(entry => entry.scope === activeScope).length, Pins: markers.filter(marker => marker.scope === activeScope).length };
+  const wouldReturnCount = scopedItems.filter(isWouldReturn).length;
+  const sectionCounts = { Experiences: experiences.organisers.length, Places: scopedItems.length, 'Would Return': wouldReturnCount, Trips: routes.filter(route => route.scope === activeScope).length, Diary: diaryEntries.filter(entry => entry.scope === activeScope).length, Pins: markers.filter(marker => marker.scope === activeScope).length };
   const navigateSection = (section: TrackerSection) => {
-    setFilter(section === 'Places' ? 'All' : section === 'Pins' ? 'Saved' : section);
+    setFilter(section === 'Places' ? 'All' : section === 'Pins' ? 'Saved' : section === 'Would Return' ? 'Return' : section);
     setListSearch('');
     setPlaceCategory('All');
     setHoveredId(null);
     setSelectedMapId(null);
     setDetailItemId(null);
-    if (section !== 'Places' && section !== 'Nearby') setAllTrackers(false);
+    if (section !== 'Places' && section !== 'Nearby' && section !== 'Would Return') setAllTrackers(false);
     if (section !== 'Trips') { setIsJourneyMode(false); setActiveRouteId(null); }
     if (windowWidth < 900) setView('list');
     if (section === 'Nearby' && !nearbyLocation) locateNearby();
@@ -1679,6 +1680,7 @@ const App = () => {
       if (placeCategory !== 'All' && (item.category || 'Other') !== placeCategory) return false;
       if (filter === 'Nearby') return nearbyLocation && item.lat && item.lng && (nearbyIncludeVisited || item.status !== 'Visited');
       if (filter === 'Visited') return item.status === 'Visited';
+      if (filter === 'Return') return isWouldReturn(item);
       if (filter === 'TODO') return item.status === 'To Do';
       return true;
     });
@@ -1694,6 +1696,7 @@ const App = () => {
     if (filter === 'Diary' || filter === 'Saved' || (placeCategory !== 'All' && placeCategory !== 'Hotels')) return [];
     if (filter === 'Nearby') return nearbyLocation ? scopeHotels.filter(item => item.lat && item.lng && (nearbyIncludeVisited || item.status !== 'Visited')) : [];
     if (filter === 'Visited') return scopeHotels.filter(item => item.status === 'Visited');
+    if (filter === 'Return') return scopeHotels.filter(isWouldReturn);
     if (filter === 'TODO') return scopeHotels.filter(item => item.status === 'To Do');
     return scopeHotels;
   }, [hotels, filter, activeScope, browseAllTrackers, placeCategory, listSearch, isJourneyMode, journeyFilter, routes, activeRouteId, nearbyLocation, nearbyIncludeVisited]);
@@ -2183,7 +2186,7 @@ const App = () => {
             </div>
           </header>
           {activeSection === 'Experiences' ? null : isPlaceCollection ? <CollectionToolbar
-            search={listSearch} onSearch={setListSearch} status={filter} onStatus={setFilter}
+            search={listSearch} onSearch={setListSearch} status={filter} onStatus={setFilter} favourites={activeSection === 'Would Return'}
             counts={{ all: scopedItems.length, todo: toDoCount, visited: visitedCount }}
             category={placeCategory} onCategory={setPlaceCategory} categories={placeCategories} categoryCounts={categoryCounts}
             sort={collectionPreferences.sort}
@@ -2489,6 +2492,7 @@ const App = () => {
             </section>
           ) : (
             <section className="collection-browse">
+              {filter === 'Return' && <p className="collection-caption">Places and hotels you have marked as worth another visit.</p>}
               <div className="space-y-4">
                 {filter === 'Nearby' && (
                   <div className="p-3 bg-white border border-indigo-100 rounded-xl shadow-sm space-y-3">
@@ -2510,7 +2514,16 @@ const App = () => {
                   </div>
                 )}
               </div>
-              {displayItems.length === 0 ? <div className="collection-empty"><MapPin size={32} /><h3>{listSearch ? 'No matching places' : filter === 'Nearby' && !nearbyLocation ? 'Find what is nearby' : 'No places in this view'}</h3><p>{listSearch ? 'Try another word, reset filters, or look across all trackers.' : filter === 'Nearby' && !nearbyLocation ? 'Use your location to see saved places around you.' : 'Choose another status or category to see more places.'}</p>{(listSearch || placeCategory !== 'All' || filter === 'Visited' || filter === 'TODO') && <button type="button" className="secondary-button" onClick={resetCollectionFilters}>Reset filters</button>}{!browseAllTrackers && filter !== 'Nearby' && <button type="button" className="secondary-button" onClick={() => { setAllTrackers(true); setFilter('All'); setPlaceCategory('All'); setMapTarget(null); }}>Search all trackers</button>}</div> : <PlaceCollection key={`${collectionPreferences.grouping}-${filter}-${activeScope}-${browseAllTrackers}-${placeCategory}-${listSearch}`} items={displayItems} grouping={collectionPreferences.grouping} density={collectionPreferences.density} renderItem={renderCollectionItem} />}
+              {displayItems.length === 0 ? (
+                <div className="collection-empty">
+                  {filter === 'Return' ? <RotateCcw size={32} /> : <MapPin size={32} />}
+                  <h3>{listSearch ? 'No matching places' : filter === 'Return' ? 'No return visits saved here yet' : filter === 'Nearby' && !nearbyLocation ? 'Find what is nearby' : 'No places in this view'}</h3>
+                  <p>{listSearch ? 'Try another word, reset filters, or look across all trackers.' : filter === 'Return' ? 'Open a visited place and select "Would Return" to save it here.' : filter === 'Nearby' && !nearbyLocation ? 'Use your location to see saved places around you.' : 'Choose another status or category to see more places.'}</p>
+                  {(listSearch || placeCategory !== 'All' || filter === 'Visited' || filter === 'TODO') && <button type="button" className="secondary-button" onClick={resetCollectionFilters}>Reset filters</button>}
+                  {filter === 'Return' && !listSearch && placeCategory === 'All' && <button type="button" className="secondary-button" onClick={() => { navigateSection('Places'); setFilter('Visited'); }}>Browse visited places</button>}
+                  {!browseAllTrackers && filter !== 'Nearby' && <button type="button" className="secondary-button" onClick={() => { setAllTrackers(true); if (filter !== 'Return') setFilter('All'); setPlaceCategory('All'); setMapTarget(null); }}>Search all trackers</button>}
+                </div>
+              ) : <PlaceCollection key={`${collectionPreferences.grouping}-${filter}-${activeScope}-${browseAllTrackers}-${placeCategory}-${listSearch}`} items={displayItems} grouping={collectionPreferences.grouping} density={collectionPreferences.density} renderItem={renderCollectionItem} />}
             </section>
           )}
         </div>

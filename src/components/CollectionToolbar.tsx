@@ -1,10 +1,10 @@
 import { useId, useState } from 'react';
-import { Search, X, Plus, Map as MapIcon, List, Columns2, SlidersHorizontal, ChevronDown, LocateFixed, LayoutGrid } from 'lucide-react';
+import { Search, X, Plus, Map as MapIcon, List, Columns2, SlidersHorizontal, ChevronDown, LocateFixed, LayoutGrid, RotateCcw } from 'lucide-react';
 import { sortLabels, type CollectionSort, type CollectionGroup, type CollectionDensity } from '../lib/collection';
 
 interface Props {
   search: string; onSearch: (query: string) => void;
-  status: string; onStatus: (status: string) => void;
+  status: string; onStatus: (status: string) => void; favourites: boolean;
   counts: { all: number; todo: number; visited: number };
   category: string; onCategory: (category: string) => void;
   categories: string[]; categoryCounts: Record<string, number>;
@@ -23,19 +23,19 @@ export default function CollectionToolbar(props: Props) {
   const [optionsOpen, setOptionsOpen] = useState(false);
   const optionsId = useId();
   const needsLocation = props.sort === 'distance' && !props.locationReady && !props.nearby;
-  const hasFilters = props.search.trim() || props.category !== 'All' || (!props.nearby && props.status !== 'All');
+  const hasFilters = props.search.trim() || props.category !== 'All' || (!props.nearby && !props.favourites && props.status !== 'All');
   const mobileMap = props.view === 'map';
   return (
     <div className="browse-toolbar">
       <div className="browse-search-row">
-        <label className="collection-search"><Search size={18} /><input type="search" value={props.search} onChange={event => props.onSearch(event.target.value)} aria-label={props.nearby ? 'Search nearby' : 'Search places'} placeholder="Name, area, category or notes…" />{props.search && <button type="button" onClick={() => props.onSearch('')} aria-label="Clear search"><X size={16} /></button>}</label>
+        <label className="collection-search"><Search size={18} /><input type="search" value={props.search} onChange={event => props.onSearch(event.target.value)} aria-label={props.nearby ? 'Search nearby' : props.favourites ? 'Search places to return to' : 'Search places'} placeholder="Name, area, category or notes…" />{props.search && <button type="button" onClick={() => props.onSearch('')} aria-label="Clear search"><X size={16} /></button>}</label>
         <div className="browse-main-actions">
           {props.mobile ? <button type="button" className="secondary-button browse-map-toggle" onClick={() => props.onView(mobileMap ? 'list' : 'map')} aria-label={mobileMap ? 'List view' : 'Map view'}>{mobileMap ? <List size={18} /> : <MapIcon size={18} />}</button> : <div className="view-switch" role="group" aria-label="Layout">{[{ id: 'list', icon: List, label: 'List' }, { id: 'split', icon: Columns2, label: 'Split' }, { id: 'map', icon: MapIcon, label: 'Map' }].map(({ id, icon: Icon, label }) => <button key={id} type="button" onClick={() => props.onView(id)} className={props.view === id ? 'is-active' : ''} aria-label={`${label} view`} aria-pressed={props.view === id}><Icon size={17} /><span>{label}</span></button>)}</div>}
           {props.isOwner && <button type="button" className="primary-button browse-add" onClick={props.onAdd} aria-label="Add place"><Plus size={18} /><span>Add place</span></button>}
         </div>
       </div>
       <div className="browse-filters">
-        {props.nearby ? <label className="nearby-visited-filter"><input type="checkbox" checked={props.includeVisited} onChange={event => props.onIncludeVisited(event.target.checked)} />Show visited</label> : <div className="status-switch" role="group" aria-label="Visit status">{[{ id: 'All', label: 'All', count: props.counts.all }, { id: 'TODO', label: 'To do', count: props.counts.todo }, { id: 'Visited', label: 'Visited', count: props.counts.visited }].map(option => <button key={option.id} type="button" onClick={() => props.onStatus(option.id)} className={props.status === option.id ? 'is-active' : ''} aria-pressed={props.status === option.id}>{option.label}<span>{option.count}</span></button>)}</div>}
+        {props.nearby ? <label className="nearby-visited-filter"><input type="checkbox" checked={props.includeVisited} onChange={event => props.onIncludeVisited(event.target.checked)} />Show visited</label> : props.favourites ? <span className="nearby-visited-filter"><RotateCcw size={16} /> Saved for another visit</span> : <div className="status-switch" role="group" aria-label="Visit status">{[{ id: 'All', label: 'All', count: props.counts.all }, { id: 'TODO', label: 'To do', count: props.counts.todo }, { id: 'Visited', label: 'Visited', count: props.counts.visited }].map(option => <button key={option.id} type="button" onClick={() => props.onStatus(option.id)} className={props.status === option.id ? 'is-active' : ''} aria-pressed={props.status === option.id}>{option.label}<span>{option.count}</span></button>)}</div>}
         <label className="browse-category"><span className="sr-only">Category</span><select aria-label="Place category" value={props.category} onChange={event => props.onCategory(event.target.value)}>{props.categories.map(category => <option key={category} value={category}>{category === 'All' ? 'All categories' : category}{category !== 'All' ? ` (${props.categoryCounts[category] || 0})` : ''}</option>)}</select></label>
       </div>
       <div className="browse-results">

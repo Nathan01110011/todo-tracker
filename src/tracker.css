@@ -118,6 +118,8 @@ button:disabled { opacity: .55; }
 .place-event { display: flex; align-items: center; gap: 7px; color: var(--accent); margin: 10px 0; font-size: .875rem; font-weight: 550; }
 .place-card-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; border-top: 1px solid var(--border); min-height: 46px; }
 .place-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; font-size: .75rem; color: var(--muted); }
+.card-return { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: 0; border-radius: 7px; background: transparent; color: var(--faint); }
+.card-return:hover, .card-return.is-active { background: var(--accent-soft); color: var(--accent); }
 .priority-summary, .photo-summary, .rating-summary { display: flex; align-items: center; gap: 6px; }
 .rating-summary { color: var(--text); }
 .rating-summary svg { color: #bc811d; }
@@ -290,8 +292,8 @@ button:disabled { opacity: .55; }
 .row-rating, .row-distance { display: flex; align-items: center; gap: 4px; font-size: .75rem; color: var(--accent); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .row-rating svg { color: #bc811d; }
 .place-row-actions { display: flex; align-items: center; gap: 2px; margin-right: 10px; flex-shrink: 0; }
-.row-photos, .row-visit { display: flex; align-items: center; justify-content: center; gap: 4px; min-width: 36px; min-height: 38px !important; padding: 4px; border: 0; border-radius: 8px; background: transparent; color: var(--faint); font-size: .75rem; }
-.row-photos:hover, .row-visit:hover { color: var(--accent); background: var(--accent-soft); }
+.row-photos, .row-visit, .row-return { display: flex; align-items: center; justify-content: center; gap: 4px; min-width: 36px; min-height: 38px !important; padding: 4px; border: 0; border-radius: 8px; background: transparent; color: var(--faint); font-size: .75rem; }
+.row-photos:hover, .row-visit:hover, .row-return:hover, .row-return.is-active { color: var(--accent); background: var(--accent-soft); }
 .row-visit.is-visited { color: var(--accent); }
 .row-visit .visit-circle { width: 18px; height: 18px; }
 .row-visit.readonly { opacity: .85; }
@@ -351,6 +353,8 @@ button:disabled { opacity: .55; }
 }
 
 @media (max-width: 380px) {
+  .section-link { font-size: .6875rem; gap: 3px; padding-inline: 0; }
+  .section-link svg { width: 19px; height: 19px; }
   .browse-toolbar { padding-inline: 12px; }
   .browse-filters .status-switch button { padding-inline: 6px; }
   .browse-category select { max-width: 125px; }

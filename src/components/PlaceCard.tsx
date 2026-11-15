@@ -1,7 +1,7 @@
 import { MapPin, Utensils, Wine, ShoppingBag, Trophy, Calendar, Bed, Compass, Check, ChevronRight, Camera, RotateCcw, Star } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import type { Place } from '../types';
-import { photoCount } from '../lib/collection';
+import { photoCount, isWouldReturn } from '../lib/collection';
 
 interface Props {
   item: Place;
@@ -21,7 +21,7 @@ const categoryIcons = { Food: Utensils, Drinks: Wine, Activities: Compass, Shopp
 export default function PlaceCard({ item, isOwner, showTracker, distance, eventDates, onLocate, onOpen, onHover, onUpdate, onPhotos }: Props) {
   const CategoryIcon = categoryIcons[item.category as keyof typeof categoryIcons] || MapPin;
   const visited = item.status === 'Visited';
-  const wouldReturn = item.return === true || item.return === 'TRUE';
+  const wouldReturn = isWouldReturn(item);
   const photos = photoCount(item);
 
   return (
@@ -39,7 +39,7 @@ export default function PlaceCard({ item, isOwner, showTracker, distance, eventD
           {visited && Number(item.rating) > 0 ? <span className="rating-summary"><Star size={14} fill="currentColor" />{item.rating}/5</span> : <span className="priority-summary" aria-label={`Priority ${item.priority || 0} out of 5`}><span className="priority-bars" aria-hidden="true">{[1, 2, 3, 4, 5].map(level => <i key={level} className={Number(item.priority) >= level ? 'is-filled' : ''} />)}</span><span>Priority</span></span>}
           {visited && item.date && <span>{format(parseISO(item.date), 'd MMM yyyy')}</span>}
           {photos > 0 && <button type="button" onClick={onPhotos} className="photo-summary" aria-label={`${photos} photos of ${item.name}`}><Camera size={15} />{photos}</button>}
-          {wouldReturn && <RotateCcw size={14} aria-label="Would return" />}
+          {visited && (isOwner ? <button type="button" className={`card-return ${wouldReturn ? 'is-active' : ''}`} aria-label={wouldReturn ? `Remove ${item.name} from Would Return` : `Add ${item.name} to Would Return`} aria-pressed={wouldReturn} title={wouldReturn ? 'Remove from Would Return' : 'Add to Would Return'} onClick={() => onUpdate({ return: !wouldReturn })}><RotateCcw size={15} /></button> : wouldReturn && <RotateCcw size={15} aria-label="Would Return" />)}
         </div>
         <div className="card-detail-actions"><button type="button" className="icon-button" onClick={onLocate} aria-label={`Show ${item.name} on map`}><MapPin size={16} /></button><button type="button" className="details-toggle" onClick={onOpen}>Details<ChevronRight size={16} /></button></div>
       </div>

@@ -115,3 +115,31 @@ test('hotel photos are supported, diary auto-sync can be disabled, and manual vi
   assert.equal(unmarked.status,200);
   assert.equal(places.rows[0].get('date'),'');
 });
+
+
+test('Would Return flags persist for existing places and hotels, including legacy sheets without the column', async () => {
+  sharedDoc.sheetsByTitle = {};
+  const places = await sharedDoc.addSheet({ title:'Places', headerValues:['id','name','status','scope'] });
+  const hotels = await sharedDoc.addSheet({ title:'Hotels', headerValues:['id','name','status','scope'] });
+  await places.addRow({ id:'p1', name:'Restaurant', status:'Visited', scope:'Austin' });
+  await hotels.addRow({ id:'h1', name:'Hotel', status:'Visited', scope:'Austin' });
+
+  const placeSet = await request('POST', { id:'p1', type:'place', return:true }, 'test-owner');
+  const hotelSet = await request('POST', { id:'h1', type:'hotel', return:true }, 'test-owner');
+  assert.equal(placeSet.status,200);
+  assert.equal(hotelSet.status,200);
+  assert.ok(places.headerValues.includes('return'));
+  assert.ok(hotels.headerValues.includes('return'));
+  assert.ok(hotels.headerValues.includes('date'));
+
+  const read = await request('GET');
+  assert.equal(read.status,200);
+  assert.equal(read.data.places[0].return,'TRUE');
+  assert.equal(read.data.hotels[0].return,'TRUE');
+
+  const unset = await request('POST', { id:'h1', type:'hotel', return:false }, 'test-owner');
+  assert.equal(unset.status,200);
+  const reread = await request('GET');
+  assert.equal(reread.data.places[0].return,'TRUE');
+  assert.equal(reread.data.hotels[0].return,'FALSE');
+});

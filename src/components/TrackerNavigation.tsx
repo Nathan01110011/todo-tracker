@@ -1,9 +1,10 @@
-import { MapPin, LocateFixed, Route, BookOpen, Bookmark, Settings, Moon, Sun, LogIn, LogOut, Sparkles } from 'lucide-react';
+import { MapPin, LocateFixed, Route, BookOpen, Bookmark, Settings, Moon, Sun, LogIn, LogOut, Sparkles, RotateCcw } from 'lucide-react';
 
-export type TrackerSection = 'Places' | 'Nearby' | 'Trips' | 'Diary' | 'Experiences' | 'Pins';
+export type TrackerSection = 'Places' | 'Would Return' | 'Nearby' | 'Trips' | 'Diary' | 'Experiences' | 'Pins';
 
 const sections = [
   { name: 'Places', icon: MapPin },
+  { name: 'Would Return', icon: RotateCcw },
   { name: 'Nearby', icon: LocateFixed },
   { name: 'Trips', icon: Route },
   { name: 'Diary', icon: BookOpen },
@@ -31,7 +32,7 @@ export default function TrackerNavigation(props: Props) {
         {sections.map(({ name, icon: Icon }) => (
           <button key={name} type="button" aria-label={name === 'Experiences' ? 'Experiences · Explore' : name} onClick={() => props.onNavigate(name)} className={`section-link ${props.activeSection === name ? 'is-active' : ''}`} aria-current={props.activeSection === name ? 'page' : undefined}>
             <Icon size={20} strokeWidth={props.activeSection === name ? 2.3 : 1.8} />
-            <span className={name === 'Experiences' ? 'section-label-desktop' : undefined}>{name}</span>{name === 'Experiences' && <span className="section-label-mobile">Explore</span>}
+            <span className={name === 'Experiences' || name === 'Would Return' ? 'section-label-desktop' : undefined}>{name}</span>{name === 'Experiences' && <span className="section-label-mobile">Explore</span>}{name === 'Would Return' && <span className="section-label-mobile">Return</span>}
             {props.counts[name] !== undefined && <span className="section-count">{props.counts[name]}</span>}
           </button>
         ))}
