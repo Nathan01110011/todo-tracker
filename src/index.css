@@ -2,174 +2,175 @@
 @tailwind components;
 @tailwind utilities;
 
-#root {
-  height: 100vh;
+#root { height: 100vh; }
+.leaflet-container { width: 100%; height: 100%; }
+html, body, #root { background: var(--app-bg); color: var(--text); }
+
+/*
+ * Theme bridge for legacy Tailwind utility classes.
+ *
+ * Tracker + Experiences use CSS tokens from tracker.css. Some dialogs,
+ * calendar cells, and trip tools predate those components and still use
+ * classes such as bg-indigo-600. Map those to semantic colours in BOTH
+ * themes instead of carrying a second, unrelated indigo/teal palette.
+ * Priority, success, warning, and danger retain distinct meanings.
+ */
+
+/* Surfaces and layered dialogs */
+.tracker-app .bg-white { background-color: var(--surface) !important; }
+.tracker-app .bg-white\/95 { background-color: color-mix(in srgb, var(--surface) 95%, transparent) !important; }
+.tracker-app .bg-white\/70 { background-color: color-mix(in srgb, var(--surface) 86%, transparent) !important; }
+.tracker-app .bg-white\/30 { background-color: color-mix(in srgb, var(--surface) 55%, transparent) !important; }
+.tracker-app .bg-slate-50 { background-color: var(--surface-soft) !important; }
+.tracker-app .bg-slate-50\/50 { background-color: color-mix(in srgb, var(--surface-soft) 55%, transparent) !important; }
+.tracker-app .bg-slate-50\/40 { background-color: color-mix(in srgb, var(--surface-soft) 42%, transparent) !important; }
+.tracker-app .bg-slate-100 { background-color: var(--surface-soft) !important; }
+.tracker-app .bg-slate-200 { background-color: var(--border) !important; }
+.tracker-app .bg-slate-900 { background-color: #181B1D !important; }
+.tracker-app .bg-slate-900\/60 { background-color: rgb(16 18 19 / .65) !important; }
+.tracker-app .bg-slate-900\/50 { background-color: rgb(16 18 19 / .55) !important; }
+
+/* Brand/action classes, including selected rows and calendar dates */
+.tracker-app .bg-indigo-50,
+.tracker-app .bg-indigo-50\/30,
+.tracker-app .bg-indigo-50\/40,
+.tracker-app .bg-indigo-50\/50 { background-color: var(--accent-soft) !important; }
+.tracker-app .bg-indigo-100 { background-color: var(--accent-soft) !important; }
+.tracker-app .bg-indigo-600,
+.tracker-app .bg-indigo-700 { background-color: var(--accent-solid) !important; }
+.tracker-app .hover\:bg-indigo-50:hover,
+.tracker-app .hover\:bg-indigo-50\/40:hover,
+.tracker-app .hover\:bg-indigo-100:hover { background-color: var(--accent-soft) !important; }
+.tracker-app .hover\:bg-indigo-600:hover,
+.tracker-app .hover\:bg-indigo-700:hover { background-color: var(--accent-hover) !important; }
+.tracker-app .bg-indigo-600.text-white,
+.tracker-app .bg-indigo-600[class*="text-white"],
+.tracker-app .bg-indigo-700.text-white { color: var(--on-accent) !important; }
+.tracker-app .bg-indigo-600:where(button, [role="button"]) { color: var(--on-accent); }
+
+/* Muted status colours instead of bright green/red/yellow accents */
+.tracker-app .bg-green-50,
+.tracker-app .bg-green-100 { background-color: var(--success-soft) !important; }
+.tracker-app .bg-green-600 { background-color: var(--success-solid) !important; }
+.tracker-app .hover\:bg-green-50:hover { background-color: var(--success-soft) !important; }
+.tracker-app .bg-red-50,
+.tracker-app .bg-red-100,
+.tracker-app .bg-rose-50\/40 { background-color: var(--danger-soft) !important; }
+.tracker-app .bg-red-600 { background-color: var(--danger) !important; }
+.tracker-app .hover\:bg-red-50:hover,
+.tracker-app .hover\:bg-red-100:hover { background-color: var(--danger-soft) !important; }
+.tracker-app .hover\:bg-red-700:hover { background-color: var(--danger) !important; }
+.tracker-app .bg-orange-50\/40,
+.tracker-app .bg-amber-50\/40,
+.tracker-app .bg-amber-50\/50,
+.tracker-app .bg-amber-100 { background-color: var(--warning-soft) !important; }
+.tracker-app .bg-lime-50\/60,
+.tracker-app .bg-emerald-50\/70 { background-color: var(--success-soft) !important; }
+
+/* Readable typography across cards, modals, and map popovers */
+.tracker-app .text-slate-900,
+.tracker-app .text-slate-800,
+.tracker-app .text-slate-700 { color: var(--text) !important; }
+.tracker-app .text-slate-600 { color: var(--text-secondary) !important; }
+.tracker-app .text-slate-500,
+.tracker-app .text-slate-400 { color: var(--muted) !important; }
+.tracker-app .text-slate-300,
+.tracker-app .text-slate-200 { color: var(--faint) !important; }
+.tracker-app .hover\:text-slate-500:hover { color: var(--text) !important; }
+.tracker-app .text-indigo-300,
+.tracker-app .text-indigo-400,
+.tracker-app .text-indigo-500,
+.tracker-app .text-indigo-600,
+.tracker-app .text-indigo-700,
+.tracker-app .text-indigo-800 { color: var(--accent) !important; }
+.tracker-app .hover\:text-indigo-500:hover,
+.tracker-app .hover\:text-indigo-600:hover,
+.tracker-app .hover\:text-indigo-700:hover,
+.tracker-app .hover\:text-indigo-800:hover { color: var(--accent-hover) !important; }
+.tracker-app .text-green-500,
+.tracker-app .text-green-600,
+.tracker-app .text-green-700,
+.tracker-app .text-green-800,
+.tracker-app .hover\:text-green-600:hover { color: var(--success) !important; }
+.tracker-app .text-red-500,
+.tracker-app .text-red-600,
+.tracker-app .text-red-700,
+.tracker-app .text-rose-600,
+.tracker-app .hover\:text-red-500:hover,
+.tracker-app .hover\:text-red-600:hover { color: var(--danger) !important; }
+.tracker-app .text-amber-700,
+.tracker-app .text-amber-800,
+.tracker-app .text-yellow-500 { color: var(--warning) !important; }
+
+/* Preserve five priority levels while keeping them in the same muted family */
+.tracker-app .text-rose-300 { color: var(--priority-low) !important; }
+.tracker-app .text-orange-400 { color: var(--priority-two) !important; }
+.tracker-app .text-amber-400 { color: var(--priority-mid) !important; }
+.tracker-app .text-lime-500 { color: var(--priority-four) !important; }
+.tracker-app .text-emerald-500 { color: var(--priority-high) !important; }
+
+/* Neutral and accent borders, focus rings and checkboxes */
+.tracker-app .border,
+.tracker-app .border-b,
+.tracker-app .border-t { border-color: var(--border); }
+.tracker-app .border-slate-50,
+.tracker-app .border-slate-100,
+.tracker-app .border-slate-200,
+.tracker-app .border-slate-300 { border-color: var(--border) !important; }
+.tracker-app .border-indigo-100,
+.tracker-app .border-indigo-100\/50,
+.tracker-app .border-indigo-200,
+.tracker-app .border-indigo-300 { border-color: var(--accent-border) !important; }
+.tracker-app .border-indigo-500,
+.tracker-app .border-indigo-600 { border-color: var(--accent) !important; }
+.tracker-app .hover\:border-indigo-100:hover,
+.tracker-app .hover\:border-indigo-200:hover,
+.tracker-app .hover\:border-indigo-300:hover { border-color: var(--accent) !important; }
+.tracker-app .border-amber-200,
+.tracker-app .border-amber-300,
+.tracker-app .border-amber-400 { border-color: var(--warning-border) !important; }
+.tracker-app .border-red-200,
+.tracker-app .border-red-300 { border-color: var(--danger-border) !important; }
+.tracker-app .divide-y > :not([hidden]) ~ :not([hidden]) { border-color: var(--border); }
+.tracker-app .ring-slate-50,
+.tracker-app .ring-slate-100 { --tw-ring-color: var(--border) !important; }
+.tracker-app .ring-indigo-100,
+.tracker-app .ring-indigo-200,
+.tracker-app .ring-indigo-500,
+.tracker-app .focus\:ring-indigo-500:focus { --tw-ring-color: var(--focus-ring) !important; }
+.tracker-app .ring-amber-100 { --tw-ring-color: var(--warning-border) !important; }
+.tracker-app .focus\:border-indigo-500:focus { border-color: var(--focus) !important; }
+.tracker-app .accent-indigo-600 { accent-color: var(--accent-solid) !important; }
+.tracker-app .accent-green-600 { accent-color: var(--success-solid) !important; }
+
+.tracker-app input,
+.tracker-app textarea,
+.tracker-app select { color: var(--text); caret-color: var(--accent); }
+.tracker-app input::placeholder,
+.tracker-app textarea::placeholder { color: var(--muted); opacity: 1; }
+.tracker-app option { background: var(--surface); color: var(--text); }
+.tracker-app input:focus,
+.tracker-app textarea:focus,
+.tracker-app select:focus { border-color: var(--focus) !important; }
+
+/* Leaflet chrome is themed in both modes; the basemap remains the user's map. */
+.tracker-app .leaflet-control-zoom a,
+.tracker-app .leaflet-control-attribution,
+.tracker-app .leaflet-popup-content-wrapper,
+.tracker-app .leaflet-popup-tip {
+  background: var(--surface);
+  color: var(--text-secondary);
 }
+.tracker-app .leaflet-control-zoom a { border-color: var(--border) !important; }
+.tracker-app .leaflet-control-zoom a:hover { background: var(--surface-soft); color: var(--text); }
+.tracker-app .leaflet-control-attribution a,
+.tracker-app .leaflet-popup-content a { color: var(--accent); }
+.tracker-app .leaflet-popup-close-button { color: var(--muted) !important; }
+.tracker-app .leaflet-popup-close-button:hover { color: var(--text) !important; }
 
-.leaflet-container {
-  width: 100%;
-  height: 100%;
-}
-
-html.theme-dark,
-html.theme-dark body,
-html.theme-dark #root {
-  --dark-bg: #101417;
-  --dark-surface: #191f24;
-  --dark-surface-raised: #222a30;
-  --dark-surface-soft: #2c363e;
-  --dark-border: #34424c;
-  --dark-border-strong: #526572;
-  --dark-text: #f8fafc;
-  --dark-text-secondary: #cbd5e1;
-  --dark-text-muted: #b0c0c9;
-  --dark-text-faint: #91a5b0;
-  --dark-accent: #b3f4e6;
-  --dark-accent-strong: #7ddac8;
-  --dark-accent-bright: #d3fff4;
-  --dark-accent-surface: rgb(45 212 191 / 0.12);
-  --dark-accent-surface-strong: rgb(45 212 191 / 0.20);
-  background: var(--dark-bg);
-  color: var(--dark-text);
-}
-
-/* Core surfaces */
-.theme-dark .bg-white { background-color: var(--dark-surface) !important; }
-.theme-dark .bg-white\/95 { background-color: rgb(25 31 36 / 0.96) !important; }
-.theme-dark .bg-white\/70 { background-color: rgb(25 31 36 / 0.86) !important; }
-.theme-dark .bg-white\/30 { background-color: rgb(44 54 62 / 0.72) !important; }
-.theme-dark .bg-slate-50,
-.theme-dark .bg-slate-50\/50 { background-color: var(--dark-bg) !important; }
-.theme-dark .bg-slate-50\/40 { background-color: rgb(16 20 23 / 0.72) !important; }
-.theme-dark .bg-slate-100 { background-color: var(--dark-surface-raised) !important; }
-.theme-dark .bg-slate-200 { background-color: var(--dark-surface-soft) !important; }
-.theme-dark .bg-slate-900 { background-color: #050b14 !important; }
-
-/* Accent surfaces */
-.theme-dark .bg-indigo-50,
-.theme-dark .bg-indigo-50\/30,
-.theme-dark .bg-indigo-50\/40,
-.theme-dark .bg-indigo-50\/50 { background-color: var(--dark-accent-surface) !important; }
-.theme-dark .bg-indigo-100 { background-color: var(--dark-accent-surface-strong) !important; }
-.theme-dark .bg-indigo-600 { background-color: #166b60 !important; }
-.theme-dark .hover\:bg-indigo-50:hover,
-.theme-dark .hover\:bg-indigo-50\/40:hover,
-.theme-dark .hover\:bg-indigo-100:hover { background-color: rgb(45 212 191 / 0.16) !important; }
-.theme-dark .hover\:bg-indigo-600:hover,
-.theme-dark .hover\:bg-indigo-700:hover { background-color: #0f766e !important; }
-
-/* Priority/status surfaces */
-.theme-dark .bg-green-50 { background-color: rgb(20 83 45 / 0.34) !important; }
-.theme-dark .bg-green-100 { background-color: rgb(22 101 52 / 0.38) !important; }
-.theme-dark .bg-red-50 { background-color: rgb(127 29 29 / 0.3) !important; }
-.theme-dark .bg-rose-50\/40 { background-color: rgb(136 19 55 / 0.2) !important; }
-.theme-dark .bg-orange-50\/40 { background-color: rgb(154 52 18 / 0.2) !important; }
-.theme-dark .bg-amber-50\/40,
-.theme-dark .bg-amber-50\/50 { background-color: rgb(146 64 14 / 0.24) !important; }
-.theme-dark .bg-lime-50\/60 { background-color: rgb(63 98 18 / 0.23) !important; }
-.theme-dark .bg-emerald-50\/70 { background-color: rgb(6 95 70 / 0.24) !important; }
-
-/* Neutral text */
-.theme-dark .text-slate-900,
-.theme-dark .text-slate-800,
-.theme-dark .text-slate-700 { color: var(--dark-text) !important; }
-.theme-dark .text-slate-600 { color: var(--dark-text-secondary) !important; }
-.theme-dark .text-slate-500,
-.theme-dark .text-slate-400 { color: var(--dark-text-muted) !important; }
-.theme-dark .text-slate-300,
-.theme-dark .text-slate-200 { color: var(--dark-text-faint) !important; }
-
-/* Accent text */
-.theme-dark .text-indigo-300 { color: #d3fff4 !important; }
-.theme-dark .text-indigo-400 { color: #b3f4e6 !important; }
-.theme-dark .text-indigo-500,
-.theme-dark .text-indigo-600 { color: var(--dark-accent-strong) !important; }
-.theme-dark .text-indigo-700,
-.theme-dark .text-indigo-800 { color: var(--dark-accent-bright) !important; }
-.theme-dark .hover\:text-indigo-500:hover,
-.theme-dark .hover\:text-indigo-600:hover,
-.theme-dark .hover\:text-indigo-700:hover,
-.theme-dark .hover\:text-indigo-800:hover { color: #d3fff4 !important; }
-
-/* Keep selected/solid-indigo controls readable: white text wins on filled controls. */
-.theme-dark .bg-indigo-600.text-white,
-.theme-dark .bg-indigo-600 .text-white,
-.theme-dark .bg-indigo-600[class*="text-white"] { color: #ffffff !important; }
-
-/* Status text */
-.theme-dark .text-green-500,
-.theme-dark .text-green-700,
-.theme-dark .text-green-800 { color: #86efac !important; }
-.theme-dark .text-red-600 { color: #fca5a5 !important; }
-.theme-dark .text-rose-600,
-.theme-dark .text-rose-300 { color: #fda4af !important; }
-.theme-dark .text-amber-700,
-.theme-dark .text-amber-800 { color: #fcd34d !important; }
-.theme-dark .text-yellow-500 { color: #fde047 !important; }
-
-/* Borders and rings */
-.theme-dark .border,
-.theme-dark .border-b,
-.theme-dark .border-t { border-color: var(--dark-border); }
-.theme-dark .border-slate-50,
-.theme-dark .border-slate-100,
-.theme-dark .border-slate-200,
-.theme-dark .border-slate-300 { border-color: var(--dark-border) !important; }
-.theme-dark .border-indigo-100,
-.theme-dark .border-indigo-100\/50,
-.theme-dark .border-indigo-200,
-.theme-dark .border-indigo-300 { border-color: #52796f !important; }
-.theme-dark .border-indigo-500,
-.theme-dark .border-indigo-600 { border-color: #5eead4 !important; }
-.theme-dark .hover\:border-indigo-100:hover,
-.theme-dark .hover\:border-indigo-200:hover,
-.theme-dark .hover\:border-indigo-300:hover { border-color: #5eead4 !important; }
-.theme-dark .divide-y > :not([hidden]) ~ :not([hidden]) { border-color: var(--dark-border); }
-.theme-dark .ring-slate-50,
-.theme-dark .ring-slate-100 { --tw-ring-color: var(--dark-border) !important; }
-.theme-dark .ring-indigo-100,
-.theme-dark .ring-indigo-200 { --tw-ring-color: rgb(129 140 248 / 0.45) !important; }
-.theme-dark .ring-indigo-500 { --tw-ring-color: #5eead4 !important; }
-
-/* Form controls */
-.theme-dark input,
-.theme-dark textarea,
-.theme-dark select {
-  color: var(--dark-text);
-  caret-color: var(--dark-accent);
-}
-.theme-dark input::placeholder,
-.theme-dark textarea::placeholder { color: var(--dark-text-faint); }
-.theme-dark option { background: var(--dark-surface); color: var(--dark-text); }
-.theme-dark input:focus,
-.theme-dark textarea:focus,
-.theme-dark select:focus { border-color: #5eead4 !important; }
-
-/* Leaflet UI and popups */
-.theme-dark .leaflet-control-zoom a,
-.theme-dark .leaflet-control-attribution,
-.theme-dark .leaflet-popup-content-wrapper,
-.theme-dark .leaflet-popup-tip {
-  background: rgb(25 31 36 / 0.96);
-  color: var(--dark-text-secondary);
-}
-.theme-dark .leaflet-control-zoom a {
-  border-color: var(--dark-border) !important;
-}
-.theme-dark .leaflet-control-zoom a:hover {
-  background: var(--dark-surface-soft);
-  color: var(--dark-text);
-}
-.theme-dark .leaflet-control-attribution a,
-.theme-dark .leaflet-popup-content a { color: var(--dark-accent); }
-.theme-dark .leaflet-popup-close-button { color: var(--dark-text-muted) !important; }
-.theme-dark .leaflet-popup-close-button:hover { color: var(--dark-text) !important; }
-
-/* Softer separation than bright light-mode shadows on dark cards/modals. */
+/* Shadows are restrained on graphite. */
 .theme-dark .shadow-sm,
 .theme-dark .shadow-md,
 .theme-dark .shadow-lg,
 .theme-dark .shadow-xl,
-.theme-dark .shadow-2xl {
-  --tw-shadow-color: rgb(0 0 0 / 0.34);
-}
+.theme-dark .shadow-2xl { --tw-shadow-color: rgb(0 0 0 / .34); }
