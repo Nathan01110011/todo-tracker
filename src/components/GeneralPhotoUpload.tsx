@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, type ChangeEvent } from 'react';
 import { Camera, Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
 import type { DiaryEntry } from '../types';
@@ -14,7 +14,7 @@ export default function GeneralPhotoUpload({ password, onUploaded, onMessage }: 
   const inputRef = useRef<HTMLInputElement>(null);
   const [progress, setProgress] = useState('');
 
-  const handleFiles = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFiles = async (event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || []);
     if (!password || !files.length) return;
     let saved = 0;
@@ -49,10 +49,8 @@ export default function GeneralPhotoUpload({ password, onUploaded, onMessage }: 
           const remote = cloudinaryPhotoMetadata(uploaded.media_metadata || uploaded.image_metadata);
           const capturedAt = local.capturedAt || remote.capturedAt ||
             format(new Date(file.lastModified || Date.now()), 'yyyy-MM-dd HH:mm:ss');
-          if (!local.capturedAt && !remote.capturedAt) fallbackDates++;
           const lat = local.lat ?? remote.lat;
           const lng = local.lng ?? remote.lng;
-          if (lat === null || lng === null) missingGps++;
 
           const savedResponse = await fetch('/api/places', {
             method: 'POST',
@@ -70,6 +68,8 @@ export default function GeneralPhotoUpload({ password, onUploaded, onMessage }: 
           if (!savedResponse.ok) throw new Error(result.error || 'Could not create diary entry');
           onUploaded(result.entry);
           saved++;
+          if (lat === null || lng === null) missingGps++;
+          if (!local.capturedAt && !remote.capturedAt) fallbackDates++;
         } catch (error: any) {
           failures.push(file.name + ': ' + (error.message || 'Upload failed'));
         }
