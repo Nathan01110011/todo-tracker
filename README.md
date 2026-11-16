@@ -21,6 +21,7 @@ A modern, interactive relocation and travel tracker built with React, TypeScript
   - Persistent private notes.
   - "Would Return" (Favorite) flags.
 - **📱 Mobile Optimized**: Native-app feel with a fixed bottom navigation bar and touch-friendly targets.
+- **🎨 Paired Themes**: **Atlas** light mode (parchment, terracotta, editorial headings) and **Signal** dark mode (graphite, brass, compact technical headings). Remembers your preference; action, map, status, dialog, and Experiences colours share accessible semantic tokens.
 - **🔐 Secure**: Password-protected entry with server-side authentication.
 
 ## 🛠️ Tech Stack

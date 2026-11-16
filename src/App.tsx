@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline } from 'react-leaflet';
 import L from 'leaflet';
@@ -52,10 +52,10 @@ const createCustomIcon = (IconComponent: any, color: string) => {
   });
 };
 
-const homeIcon = createCustomIcon(Home, '#0f766e'); // Indigo
-const officeIcon = createCustomIcon(Briefcase, '#0891b2'); // Cyan
-const hotelMarkerIcon = createCustomIcon(Bed, '#2563eb'); // Violet
-const defaultPinIcon = createCustomIcon(MapPin, '#64748b'); // Slate
+const homeIcon = createCustomIcon(Home, 'var(--map-home)');
+const officeIcon = createCustomIcon(Briefcase, 'var(--map-office)');
+const hotelMarkerIcon = createCustomIcon(Bed, 'var(--map-hotel)');
+const defaultPinIcon = createCustomIcon(MapPin, 'var(--map-default)');
 
 // Types
 interface MarkerData {
@@ -872,10 +872,13 @@ const App = () => {
   const [countdown, setCountdown] = useState(0);
   const isOwner = Boolean(appPassword);
 
-  useEffect(() => {
+  // Apply the saved palette before the browser paints (avoids a light flash
+  // when returning to Signal dark mode).
+  useLayoutEffect(() => {
     localStorage.setItem('todo_tracker_theme', isDarkMode ? 'dark' : 'light');
     document.documentElement.classList.toggle('theme-dark', isDarkMode);
     document.documentElement.style.colorScheme = isDarkMode ? 'dark' : 'light';
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', isDarkMode ? '#141719' : '#F6F3ED');
   }, [isDarkMode]);
 
   useEffect(() => {
@@ -1720,7 +1723,7 @@ const App = () => {
   const getMarkerIcon = (type: string, id: string) => {
     const compositeId = `marker:${id}`;
     const isHovered = hoveredId === compositeId;
-    const color = isHovered ? '#f59e0b' : (type === 'home' ? '#0f766e' : type === 'office' ? '#0891b2' : '#64748b');
+    const color = isHovered ? 'var(--map-hover)' : (type === 'home' ? 'var(--map-home)' : type === 'office' ? 'var(--map-office)' : 'var(--map-default)');
     const scale = isHovered ? 1.2 : 1;
     const IconComponent = type === 'home' ? Home : type === 'office' ? Briefcase : MapPin;
 
@@ -1742,7 +1745,7 @@ const App = () => {
   const getHotelIcon = (id: string) => {
     const compositeId = `hotel:${id}`;
     const isHovered = hoveredId === compositeId;
-    const color = isHovered ? '#f59e0b' : '#2563eb';
+    const color = isHovered ? 'var(--map-hover)' : 'var(--map-hotel)';
     const scale = isHovered ? 1.2 : 1;
 
     return L.divIcon({
@@ -1763,7 +1766,7 @@ const App = () => {
   const getPlaceIcon = (id: string) => {
     const compositeId = `place:${id}`;
     const isHovered = hoveredId === compositeId;
-    const color = isHovered ? '#f59e0b' : '#64748b';
+    const color = isHovered ? 'var(--map-hover)' : 'var(--map-default)';
     const scale = isHovered ? 1.2 : 1;
 
     return L.divIcon({
@@ -2573,7 +2576,7 @@ const App = () => {
             {showRouteLine && currentRoutePoints.length > 1 && (
               <Polyline
                 positions={currentRoutePoints.map(p => [p.lat, p.lng])}
-                color="#0f766e"
+                color="var(--map-route)"
                 weight={4}
                 opacity={0.6}
                 dashArray="10, 10"
