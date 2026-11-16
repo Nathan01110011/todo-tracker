@@ -27,3 +27,19 @@ export interface Place {
   photos?: string;
   photoDetails?: PhotoDetails[];
 }
+
+export interface DiaryEntry {
+  id: string;
+  date: string;
+  title: string;
+  notes: string;
+  placeId: string;
+  placeType: string;
+  name: string;
+  address: string;
+  lat: number;
+  lng: number;
+  scope: string;
+  createdAt: string;
+  photos?: PhotoDetails[];
+}
