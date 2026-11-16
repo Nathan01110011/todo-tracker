@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline } from 'react-leaflet';
 import L from 'leaflet';
@@ -872,10 +872,13 @@ const App = () => {
   const [countdown, setCountdown] = useState(0);
   const isOwner = Boolean(appPassword);
 
-  useEffect(() => {
+  // Apply the saved palette before the browser paints (avoids a light flash
+  // when returning to Signal dark mode).
+  useLayoutEffect(() => {
     localStorage.setItem('todo_tracker_theme', isDarkMode ? 'dark' : 'light');
     document.documentElement.classList.toggle('theme-dark', isDarkMode);
     document.documentElement.style.colorScheme = isDarkMode ? 'dark' : 'light';
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', isDarkMode ? '#141719' : '#F6F3ED');
   }, [isDarkMode]);
 
   useEffect(() => {
