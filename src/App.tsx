@@ -52,10 +52,10 @@ const createCustomIcon = (IconComponent: any, color: string) => {
   });
 };
 
-const homeIcon = createCustomIcon(Home, '#0f766e'); // Indigo
-const officeIcon = createCustomIcon(Briefcase, '#0891b2'); // Cyan
-const hotelMarkerIcon = createCustomIcon(Bed, '#2563eb'); // Violet
-const defaultPinIcon = createCustomIcon(MapPin, '#64748b'); // Slate
+const homeIcon = createCustomIcon(Home, 'var(--map-home)');
+const officeIcon = createCustomIcon(Briefcase, 'var(--map-office)');
+const hotelMarkerIcon = createCustomIcon(Bed, 'var(--map-hotel)');
+const defaultPinIcon = createCustomIcon(MapPin, 'var(--map-default)');
 
 // Types
 interface MarkerData {
@@ -1720,7 +1720,7 @@ const App = () => {
   const getMarkerIcon = (type: string, id: string) => {
     const compositeId = `marker:${id}`;
     const isHovered = hoveredId === compositeId;
-    const color = isHovered ? '#f59e0b' : (type === 'home' ? '#0f766e' : type === 'office' ? '#0891b2' : '#64748b');
+    const color = isHovered ? 'var(--map-hover)' : (type === 'home' ? 'var(--map-home)' : type === 'office' ? 'var(--map-office)' : 'var(--map-default)');
     const scale = isHovered ? 1.2 : 1;
     const IconComponent = type === 'home' ? Home : type === 'office' ? Briefcase : MapPin;
 
@@ -1742,7 +1742,7 @@ const App = () => {
   const getHotelIcon = (id: string) => {
     const compositeId = `hotel:${id}`;
     const isHovered = hoveredId === compositeId;
-    const color = isHovered ? '#f59e0b' : '#2563eb';
+    const color = isHovered ? 'var(--map-hover)' : 'var(--map-hotel)';
     const scale = isHovered ? 1.2 : 1;
 
     return L.divIcon({
@@ -1763,7 +1763,7 @@ const App = () => {
   const getPlaceIcon = (id: string) => {
     const compositeId = `place:${id}`;
     const isHovered = hoveredId === compositeId;
-    const color = isHovered ? '#f59e0b' : '#64748b';
+    const color = isHovered ? 'var(--map-hover)' : 'var(--map-default)';
     const scale = isHovered ? 1.2 : 1;
 
     return L.divIcon({
@@ -2573,7 +2573,7 @@ const App = () => {
             {showRouteLine && currentRoutePoints.length > 1 && (
               <Polyline
                 positions={currentRoutePoints.map(p => [p.lat, p.lng])}
-                color="#0f766e"
+                color="var(--map-route)"
                 weight={4}
                 opacity={0.6}
                 dashArray="10, 10"
