@@ -143,3 +143,69 @@ test('Would Return flags persist for existing places and hotels, including legac
   assert.equal(reread.data.places[0].return,'TRUE');
   assert.equal(reread.data.hotels[0].return,'FALSE');
 });
+
+
+test('standalone diary photos save camera date and GPS without marking a destination visited', async () => {
+  sharedDoc.sheetsByTitle = {};
+  const previousCloud = process.env.VITE_CLOUDINARY_CLOUD_NAME;
+  process.env.VITE_CLOUDINARY_CLOUD_NAME = 'sample-cloud';
+  try {
+    const places = await sharedDoc.addSheet({ title:'Places', headerValues:['id','name','status','date','scope'] });
+    await places.addRow({ id:'museum', name:'Museum', status:'To Do', date:'', scope:'Austin' });
+    const url = 'https://res.cloudinary.com/sample-cloud/image/upload/v1700000000/tracker_photos/photo-one.jpg';
+    const payload = { type:'diary', action:'addPhoto', photoUrl:url, capturedAt:'2026:11:10 15:42:03',
+      uploadedAt:'2026-11-16T10:00:00Z', lat:30.2672, lng:-97.7431, date:'2026-11-16' };
+    const result = await request('POST', payload, 'test-owner');
+    assert.equal(result.status, 200);
+    assert.equal(result.data.entry.date, '2026-11-10');
+    assert.equal(result.data.entry.placeType, 'general-photo');
+    assert.equal(result.data.entry.scope, 'General');
+    assert.equal(result.data.entry.lat, 30.2672);
+    assert.equal(result.data.entry.lng, -97.7431);
+    assert.equal(result.data.entry.photos[0].capturedAt, '2026:11:10 15:42:03');
+    assert.equal(places.rows[0].get('status'), 'To Do');
+    assert.equal(places.rows[0].get('date'), '');
+
+    const photos = sharedDoc.sheetsByTitle.Photos;
+    const diary = sharedDoc.sheetsByTitle.Diary;
+    assert.equal(photos.rows.length, 1);
+    assert.equal(photos.rows[0].get('locationId'), 'diary:' + result.data.entry.id);
+    assert.ok(photos.headerValues.includes('capturedAt'));
+    assert.equal(diary.rows.length, 1);
+
+    const reread = await request('GET');
+    assert.equal(reread.status, 200);
+    assert.deepEqual(reread.data.diaryEntries[0].photos, result.data.entry.photos);
+
+    // A retry for the same Cloudinary URL must not create duplicates.
+    const retry = await request('POST', payload, 'test-owner');
+    assert.equal(retry.status, 200);
+    assert.equal(retry.data.entry.id, result.data.entry.id);
+    assert.equal(diary.rows.length, 1);
+    assert.equal(photos.rows.length, 1);
+
+    // Deleting the diary entry removes the photo relationship too.
+    const deleted = await request('POST', { type:'diary', action:'delete', id:result.data.entry.id }, 'test-owner');
+    assert.equal(deleted.status, 200);
+    assert.equal(photos.rows.length, 0);
+    assert.equal(diary.rows.length, 0);
+
+    const noGpsUrl = 'https://res.cloudinary.com/sample-cloud/image/upload/v1700000000/tracker_photos/photo-two.jpg';
+    const noGps = await request('POST', { type:'diary', action:'addPhoto', photoUrl:noGpsUrl,
+      date:'2026-11-09', lat:null, lng:null }, 'test-owner');
+    assert.equal(noGps.status, 200);
+    assert.equal(noGps.data.entry.date, '2026-11-09');
+    assert.equal(noGps.data.entry.lat, 0);
+    assert.equal(noGps.data.entry.lng, 0);
+    assert.equal(noGps.data.entry.photos.length, 1);
+
+    const external = await request('POST', { type:'diary', action:'addPhoto',
+      photoUrl:'https://example.com/evil.jpg' }, 'test-owner');
+    assert.equal(external.status, 400);
+    assert.equal(diary.rows.length, 1);
+    assert.equal(photos.rows.length, 1);
+  } finally {
+    if (previousCloud === undefined) delete process.env.VITE_CLOUDINARY_CLOUD_NAME;
+    else process.env.VITE_CLOUDINARY_CLOUD_NAME = previousCloud;
+  }
+});
