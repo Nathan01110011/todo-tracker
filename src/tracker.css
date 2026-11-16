@@ -24,7 +24,7 @@
   --success-solid: #426F55;
   --success-soft: #E8F1E8;
   --success-border: #B5CFBB;
-  --warning: #8D682F;
+  --warning: #835F29;
   --warning-soft: #F7EAD4;
   --warning-border: #D8B985;
   --danger: #AC463F;
@@ -174,9 +174,9 @@ button:disabled { opacity: .55; }
 .visit-toggle { display: grid; place-items: center; width: 36px; height: 36px; flex-shrink: 0; margin: -6px -8px 0 0; border: 0; border-radius: 50%; background: transparent; color: var(--faint); }
 .visit-toggle:hover { background: var(--surface-soft); color: var(--accent); }
 .visit-circle { width: 20px; height: 20px; border: 1.5px solid currentColor; border-radius: 50%; }
-.visit-toggle.is-visited { color: var(--accent); background: var(--accent-soft); }
+.visit-toggle.is-visited { color: var(--success); background: var(--success-soft); }
 .visit-label { font-size: .75rem; color: var(--muted); }
-.visit-label.is-visited { color: var(--accent); }
+.visit-label.is-visited { color: var(--success); }
 .place-name { display: block; text-align: left; min-height: 28px !important; margin: 0; padding: 0; border: 0; background: transparent; color: var(--text); font-size: 1.0625rem; font-weight: 650; line-height: 1.4; letter-spacing: -.02em; overflow-wrap: anywhere; }
 .place-name:hover { color: var(--accent); }
 .place-description { color: var(--muted); margin: 6px 0 0; font-size: .875rem; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
@@ -361,7 +361,7 @@ button:disabled { opacity: .55; }
 .place-row-actions { display: flex; align-items: center; gap: 2px; margin-right: 10px; flex-shrink: 0; }
 .row-photos, .row-visit, .row-return { display: flex; align-items: center; justify-content: center; gap: 4px; min-width: 36px; min-height: 38px !important; padding: 4px; border: 0; border-radius: 8px; background: transparent; color: var(--faint); font-size: .75rem; }
 .row-photos:hover, .row-visit:hover, .row-return:hover, .row-return.is-active { color: var(--accent); background: var(--accent-soft); }
-.row-visit.is-visited { color: var(--accent); }
+.row-visit.is-visited { color: var(--success); }
 .row-visit .visit-circle { width: 18px; height: 18px; }
 .row-visit.readonly { opacity: .85; }
 .card-detail-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
@@ -375,7 +375,7 @@ button:disabled { opacity: .55; }
 .place-panel-error { margin: 0 0 16px; padding: 10px 12px; border: 1px solid var(--danger-border); border-radius: 8px; background: var(--danger-soft); color: var(--danger); font-size: .875rem; }
 .place-panel-category { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; color: var(--accent); font-size: .875rem; }
 .place-panel-category button { display: flex; align-items: center; gap: 5px; padding: 4px 10px; font-size: .8125rem; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-soft); color: var(--muted); }
-.place-panel-category .is-visited { border-color: var(--accent-soft); color: var(--accent); background: var(--accent-soft); }
+.place-panel-category .is-visited { border-color: var(--success-border); color: var(--success); background: var(--success-soft); }
 .place-panel h2 { margin: 0 0 10px; font-size: 1.6rem; line-height: 1.25; letter-spacing: -.035em; font-weight: 650; overflow-wrap: anywhere; }
 .place-panel-address { margin: 0; color: var(--muted); font-size: .875rem; overflow-wrap: anywhere; }
 .place-panel-description { margin: 18px 0 0; font-size: .9375rem; line-height: 1.65; }
