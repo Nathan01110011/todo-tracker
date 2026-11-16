@@ -14,6 +14,7 @@ A modern, interactive relocation and travel tracker built with React, TypeScript
 - **🧳 Trips**: Build ordered routes or flexible unordered city breaks, check off stops as you go, and complete a trip without marking skipped places as visited.
 - **📖 Diary**: Log activities for today or earlier, attach tracker locations or arbitrary places, and capture the current location with browser geolocation.
 - **📷 Photo notes**: Add a short comment to each image and show its camera timestamp when the uploaded file provides one.
+- **📸 General diary photos**: Upload multiple standalone photos in Diary without choosing a destination or marking anywhere visited. Camera EXIF dates and GPS are retained where available; the General photos filter shows the album across tracker regions, with map pins for geotagged photos.
 - **🔁 Would Return**: A dedicated list and map of visited places and hotels you would go back to, with region, category, search, and sort controls. Toggle the flag directly from place rows/cards or their details.
 - **✅ Visited History**:
   - Grouped by category.
@@ -78,7 +79,7 @@ The Diary sheet is created automatically when the first authenticated entry is s
 ### "Photos"
 `locationId`, `url`, `comment`, `capturedAt`, `uploadedAt`
 
-The three metadata columns are added automatically after an authenticated request. Existing URL-only photo rows remain supported.
+The three metadata columns are added automatically after an authenticated request. Existing URL-only photo rows remain supported. Standalone diary uploads reuse this sheet with `locationId` equal to `diary:<diaryEntryId>`, linked to a Diary row with `placeType=general-photo` and `scope=General`. These photos are visible across tracker regions without changing a saved place's status. JPEG EXIF is read locally where possible; metadata from Cloudinary is used for other formats when available. Without camera timestamps, the file modification time is used; without GPS, no map pin is shown.
 
 **Note:** Ensure you share your Google Sheet with your `GOOGLE_SERVICE_ACCOUNT_EMAIL` and grant it **Editor** permissions.
 
