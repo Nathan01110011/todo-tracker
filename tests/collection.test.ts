@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { isWouldReturn, matchesCollectionSearch, groupCollection, sortCollection, type PlaceItem } from '../src/lib/collection';
+import { PLACE_CATEGORIES, LOCATION_CATEGORIES } from '../src/lib/placeCategories';
 
 const place = (id: string, status: string, returns: PlaceItem['return'], type: 'place' | 'hotel' = 'place'): PlaceItem => ({
   id, type, name: id, address: 'Austin', lat: 30.2, lng: -97.7,
@@ -28,4 +29,20 @@ test('Would Return collection supports places and hotels and existing browsing t
   assert.deepEqual(sortCollection(favourites, 'name', () => 0).map(item => item.name), ['Hotel', 'Museum']);
   assert.deepEqual(groupCollection(favourites, 'category').map(group => group.label), ['Food', 'Hotels']);
   assert.deepEqual(favourites.filter(item => matchesCollectionSearch(item, 'Hotel')).map(item => item.name), ['Hotel']);
+});
+
+
+test('Landmarks appear in add/edit category choices and browsing filters', () => {
+  assert.equal(PLACE_CATEGORIES.includes('Landmarks'), true);
+  assert.equal(LOCATION_CATEGORIES.includes('Landmarks'), true);
+  assert.equal(LOCATION_CATEGORIES.filter(category => category === 'Landmarks').length, 1);
+  const sites: PlaceItem[] = [
+    { ...place('The Alamo', 'To Do', ''), category: 'Landmarks' },
+    { ...place('Restaurant', 'To Do', ''), category: 'Food' },
+    { ...place('Capitol', 'Visited', 'TRUE'), category: 'Landmarks' }
+  ];
+  const landmarks = sites.filter(site => site.category === 'Landmarks');
+  assert.deepEqual(landmarks.map(site => site.name), ['The Alamo', 'Capitol']);
+  assert.deepEqual(groupCollection(sites, 'category').map(group => group.label), ['Food', 'Landmarks']);
+  assert.equal(matchesCollectionSearch(landmarks[0], 'landmarks'), true);
 });
