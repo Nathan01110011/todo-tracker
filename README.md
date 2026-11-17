@@ -17,6 +17,8 @@ A modern, interactive relocation and travel tracker built with React, TypeScript
 - **📖 Diary**: Log activities for today or earlier, attach tracker locations or arbitrary places, and capture the current location with browser geolocation.
 - **📷 Photo notes**: Add a short comment to each image and show its camera timestamp when the uploaded file provides one.
 - **📸 General diary photos**: Upload multiple standalone photos in Diary without choosing a destination or marking anywhere visited. Camera EXIF dates and GPS are retained where available; the General photos filter shows the album across tracker regions, with map pins for geotagged photos.
+  - On Android, the standard image-only photo picker may redact EXIF GPS before Chrome receives the image, even with Save location enabled in the Camera app. The Diary uploader opens the general Files picker to give locally stored originals a better chance of retaining GPS; pick from `Internal storage/DCIM/Camera` when possible. This is not guaranteed by Android.
+  - Existing photos missing GPS offer **Set location / recover GPS**. Reselect the original photo (read locally, without reuploading) or tap the map to place a pin; the Diary entry and image are preserved.
 - **🔁 Would Return**: A dedicated list and map of visited places and hotels you would go back to, with region, category, search, and sort controls. Toggle the flag directly from place rows/cards or their details.
 - **✅ Visited History**:
   - Grouped by category.
