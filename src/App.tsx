@@ -6,6 +6,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import 'leaflet/dist/leaflet.css';
 import TrackerNavigation, { type TrackerSection } from './components/TrackerNavigation';
 import ExperiencesPanel from './components/ExperiencesPanel';
+import GeneralPhotoUpload from './components/GeneralPhotoUpload';
+import { PLACE_CATEGORIES, LOCATION_CATEGORIES } from './lib/placeCategories';
 import { emptyExperiences, type Experiences } from './lib/experiences';
 import PlaceCard from './components/PlaceCard';
 import PlaceRow from './components/PlaceRow';
@@ -13,7 +15,7 @@ import PlaceCollection from './components/PlaceCollection';
 import PlaceDetailsPanel from './components/PlaceDetailsPanel';
 import CollectionToolbar from './components/CollectionToolbar';
 import { isWouldReturn, matchesCollectionSearch, sortCollection, sortLabels, type CollectionSort, type CollectionGroup, type CollectionDensity, type PlaceItem } from './lib/collection';
-import type { Place, PhotoDetails } from './types';
+import type { Place, PhotoDetails, DiaryEntry } from './types';
 import {
   Check, CheckCircle2, Circle, Map as MapIcon, List, Filter, Home, Briefcase,
   MapPin, Search, Star, X, Plus, Save, Loader2, Bed, RotateCcw,
@@ -77,21 +79,6 @@ interface Route {
   tripType: 'ordered' | 'unordered';
   completedPlaceIds: string[];
   status: 'planned' | 'active' | 'completed';
-}
-
-interface DiaryEntry {
-  id: string;
-  date: string;
-  title: string;
-  notes: string;
-  placeId: string;
-  placeType: string;
-  name: string;
-  address: string;
-  lat: number;
-  lng: number;
-  scope: string;
-  createdAt: string;
 }
 
 const SCOPE_CONFIG = {
@@ -306,7 +293,7 @@ const EditLocationModal = ({ item, onSave, onDelete, onClose }: { item: Place, o
             <label className="block space-y-1">
               <span className="text-xs font-bold tracking-wide text-slate-400">Category</span>
               <select value={category} onChange={(e) => setCategory(e.target.value)} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm">
-                {['Food', 'Drinks', 'Activities', 'Shopping', 'Sport', 'Events', 'Other'].map(option => <option key={option} value={option}>{option}</option>)}
+                {PLACE_CATEGORIES.map(option => <option key={option} value={option}>{option}</option>)}
               </select>
             </label>
           )}
@@ -812,6 +799,7 @@ const App = () => {
   const [routes, setRoutes] = useState<Route[]>([]);
   const [experiences, setExperiences] = useState<Experiences>(emptyExperiences);
   const [diaryEntries, setDiaryEntries] = useState<DiaryEntry[]>([]);
+  const [diaryView, setDiaryView] = useState<'all' | 'photos'>('all');
   const [isJourneyMode, setIsJourneyMode] = useState(false);
   const [selectedJourneyPlaces, setSelectedJourneyPlaces] = useState<string[]>([]);
   const [journeyName, setJourneyName] = useState('');
@@ -1198,7 +1186,7 @@ const App = () => {
   const deleteDiaryEntry = (entry: DiaryEntry) => {
     if (!isOwner) return;
     setConfirmationDialog({
-      message: `Delete diary entry "${entry.title}"?`,
+      message: entry.placeType === "general-photo" ? "Delete this general photo from the diary and storage?" : `Delete diary entry "${entry.title}"?`,
       onConfirm: async () => {
         const response = await fetch('/api/places', {
           method: 'POST',
@@ -1576,7 +1564,7 @@ const App = () => {
     });
   };
 
-  const placeCategories = ['All', 'Food', 'Drinks', 'Activities', 'Shopping', 'Sport', 'Events', 'Hotels', 'Other'];
+  const placeCategories = LOCATION_CATEGORIES;
   const activeSection: TrackerSection = filter === 'Saved' ? 'Pins' : filter === 'Return' ? 'Would Return' : filter === 'Nearby' || filter === 'Trips' || filter === 'Diary' || filter === 'Experiences' ? filter : 'Places';
   const isPlaceCollection = activeSection === 'Places' || activeSection === 'Nearby' || activeSection === 'Would Return';
   const browseAllTrackers = isPlaceCollection && allTrackers;
@@ -1590,7 +1578,7 @@ const App = () => {
   const toDoCount = scopedItems.filter(item => item.status === 'To Do').length;
   const visitedCount = scopedItems.filter(item => item.status === 'Visited').length;
   const wouldReturnCount = scopedItems.filter(isWouldReturn).length;
-  const sectionCounts = { Experiences: experiences.organisers.length, Places: scopedItems.length, 'Would Return': wouldReturnCount, Trips: routes.filter(route => route.scope === activeScope).length, Diary: diaryEntries.filter(entry => entry.scope === activeScope).length, Pins: markers.filter(marker => marker.scope === activeScope).length };
+  const sectionCounts = { Experiences: experiences.organisers.length, Places: scopedItems.length, 'Would Return': wouldReturnCount, Trips: routes.filter(route => route.scope === activeScope).length, Diary: diaryEntries.filter(entry => entry.scope === activeScope || entry.placeType === 'general-photo').length, Pins: markers.filter(marker => marker.scope === activeScope).length };
   const navigateSection = (section: TrackerSection) => {
     setFilter(section === 'Places' ? 'All' : section === 'Pins' ? 'Saved' : section === 'Would Return' ? 'Return' : section);
     setListSearch('');
@@ -1616,14 +1604,19 @@ const App = () => {
   };
   const diaryGroups = useMemo(() => {
     const scopedEntries = diaryEntries
-      .filter(entry => entry.scope === activeScope && matchesSearch(entry))
-      .sort((a, b) => `${b.date}-${b.createdAt}`.localeCompare(`${a.date}-${a.createdAt}`));
+      .filter(entry => (entry.scope === activeScope || entry.placeType === 'general-photo') && matchesSearch(entry))
+      .filter(entry => diaryView === 'all' || entry.placeType === 'general-photo')
+      .sort((a, b) => {
+        const timestamp = (entry: DiaryEntry) => entry.placeType === 'general-photo'
+          ? entry.photos?.[0]?.capturedAt || entry.createdAt : entry.createdAt;
+        return (b.date + '-' + timestamp(b)).localeCompare(a.date + '-' + timestamp(a));
+      });
     return scopedEntries.reduce<Record<string, DiaryEntry[]>>((groups, entry) => {
       if (!groups[entry.date]) groups[entry.date] = [];
       groups[entry.date].push(entry);
       return groups;
     }, {});
-  }, [diaryEntries, activeScope, listSearch]);
+  }, [diaryEntries, activeScope, listSearch, diaryView]);
   const effectiveSidebarWidth = windowWidth < 900 ? (view === 'map' ? 0 : 100) : view === 'map' ? 0 : view === 'list' ? 100 : 48;
 
   const filteredMarkers = useMemo(() => markers.filter(m => browseAllTrackers || m.scope === activeScope), [markers, activeScope, browseAllTrackers]);
@@ -2205,6 +2198,11 @@ const App = () => {
             <label className="collection-search"><Search size={18} /><input type="search" value={listSearch} onChange={event => setListSearch(event.target.value)} aria-label={`Search ${activeSection.toLowerCase()}`} placeholder={`Search ${activeSection.toLowerCase()}…`} />{listSearch && <button type="button" onClick={() => setListSearch('')} aria-label="Clear search"><X size={16} /></button>}</label>
             <div className="toolbar-actions">
               <div className="view-switch" role="group" aria-label="Layout">{[{ id: 'list', icon: List, label: 'List' }, ...(windowWidth >= 900 ? [{ id: 'split', icon: Columns2, label: 'Split' }] : []), { id: 'map', icon: MapIcon, label: 'Map' }].map(({ id, icon: Icon, label }) => <button key={id} type="button" onClick={() => setView(id)} className={view === id || (windowWidth < 900 && view === 'split' && id === 'list') ? 'is-active' : ''} aria-label={`${label} view`} aria-pressed={view === id || (windowWidth < 900 && view === 'split' && id === 'list')}><Icon size={17} /><span>{label}</span></button>)}</div>
+              {isOwner && activeSection === 'Diary' && <GeneralPhotoUpload
+                password={appPassword}
+                onUploaded={entry => setDiaryEntries(current => current.some(item => item.id === entry.id) ? current : [entry, ...current])}
+                onMessage={setToastMessage}
+              />}
               {isOwner && activeSection !== 'Pins' && !isJourneyMode && <button type="button" className="primary-button collection-add" onClick={() => { if (activeSection === 'Trips') createTrip(); else if (activeSection === 'Diary') setShowDiaryDialog(true); else setShowAddPlace(true); }}><Plus size={18} /><span>{activeSection === 'Trips' ? 'New trip' : activeSection === 'Diary' ? 'Add entry' : 'Add place'}</span></button>}
             </div>
           </div>
@@ -2215,11 +2213,19 @@ const App = () => {
             <div ref={listPanelRef} style={{ width: `${effectiveSidebarWidth}%` }} data-view={view} className={`collection-panel ${view === 'map' ? 'is-hidden' : ''}`}>
           {isLoading ? <div className="collection-empty" role="status"><Loader2 size={28} className="animate-spin" /><p>Loading your tracker…</p></div> : filter === 'Diary' ? (
             <section className="space-y-5">
-              <p className="collection-caption">{Object.values(diaryGroups).flat().length} entries · Most recent first</p>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="collection-caption">{Object.values(diaryGroups).flat().length} entries · Most recent first</p>
+                <div className="flex gap-1 rounded-xl bg-slate-100 p-1" role="group" aria-label="Diary category">
+                  <button type="button" aria-pressed={diaryView === 'all'} onClick={() => setDiaryView('all')}
+                    className={'px-3 py-1.5 text-xs font-semibold rounded-lg ' + (diaryView === 'all' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500')}>All entries</button>
+                  <button type="button" aria-pressed={diaryView === 'photos'} onClick={() => setDiaryView('photos')}
+                    className={'px-3 py-1.5 text-xs font-semibold rounded-lg ' + (diaryView === 'photos' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500')}>General photos</button>
+                </div>
+              </div>
               {Object.keys(diaryGroups).length === 0 ? (
                 <div className="text-center py-12 text-slate-400 bg-white rounded-2xl border border-slate-100">
                   <BookOpen size={36} className="mx-auto mb-3 opacity-20" />
-                  <p className="text-sm font-medium">{listSearch ? 'No diary entries match your search.' : `No diary entries for ${activeScope} yet.`}</p>
+                  <p className="text-sm font-medium">{listSearch ? 'No diary entries match your search.' : diaryView === 'photos' ? 'No general photos yet. Use Upload photos to add some.' : `No diary entries for ${activeScope} yet.`}</p>
                 </div>
               ) : Object.entries(diaryGroups).map(([date, entries]) => (
                 <div key={date} className="space-y-2">
@@ -2228,11 +2234,21 @@ const App = () => {
                     <div id={`diary-entry-${entry.id}`} key={entry.id} className={`bg-white p-4 rounded-2xl border border-slate-100 shadow-sm ${entry.lat && entry.lng ? 'cursor-pointer hover:border-indigo-200' : ''}`}>
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <h4 className="font-bold text-base text-slate-900">{entry.lat && entry.lng ? <button type="button" className="text-left hover:text-indigo-600" onClick={() => locateItem(entry)}>{entry.title}</button> : entry.title}</h4>
+                          <h4 className="font-bold text-base text-slate-900">{entry.lat && entry.lng ? <button type="button" className="text-left hover:text-indigo-600" onClick={() => locateItem(entry)}>{entry.placeType === 'general-photo' ? 'General photo' : entry.title}</button> : entry.placeType === 'general-photo' ? 'General photo' : entry.title}</h4>
+                          {entry.placeType === 'general-photo' && <p className="flex items-center gap-1.5 text-xs text-slate-500 mt-1"><Camera size={12} /> General photos · {formatPhotoTimestamp(entry.photos?.[0]?.capturedAt || '') || 'Time unavailable'}</p>}
+                          {entry.placeType === 'general-photo' && entry.lat && entry.lng && <p className="text-xs text-slate-500 mt-1 flex items-center gap-1"><MapPin size={11} /> GPS: {entry.lat.toFixed(5)}, {entry.lng.toFixed(5)}</p>}
+                          {entry.placeType === 'general-photo' && !entry.lat && !entry.lng && <p className="text-xs text-slate-400 mt-1">No GPS coordinates in this photo</p>}
                           {entry.address && <p className="text-xs text-indigo-500 mt-1 flex items-center gap-1 truncate"><MapPin size={11} className="shrink-0" /> {entry.address}</p>}
                         </div>
                         {isOwner && <button onClick={event => { event.stopPropagation(); deleteDiaryEntry(entry); }} className="p-1.5 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-lg" title="Delete diary entry"><Trash2 size={16} /></button>}
                       </div>
+                      {entry.placeType === 'general-photo' && entry.photos?.length ? (
+                        <button type="button" className="block mt-3 w-full overflow-hidden rounded-xl bg-slate-100"
+                          aria-label="View general diary photo"
+                          onClick={() => setLightboxState({ urls: entry.photos!.map(photo => photo.url), index: 0 })}>
+                          <img src={entry.photos[0].url} alt="General diary photo" loading="lazy" className="block w-full max-h-64 object-contain" />
+                        </button>
+                      ) : null}
                       {entry.notes && <p className="text-sm text-slate-600 mt-3 whitespace-pre-wrap leading-relaxed">{entry.notes}</p>}
                     </div>
                   ))}
@@ -2627,7 +2643,7 @@ const App = () => {
                 }}
               />
             ))}
-            {filter === 'Diary' && diaryEntries.filter(entry => entry.scope === activeScope && entry.lat && entry.lng).map(entry => (
+            {filter === 'Diary' && diaryEntries.filter(entry => (entry.scope === activeScope || entry.placeType === 'general-photo') && (diaryView === 'all' || entry.placeType === 'general-photo') && entry.lat && entry.lng).map(entry => (
               <Marker key={`diary:${entry.id}`} position={[entry.lat, entry.lng]} icon={defaultPinIcon}>
                 <Popup>
                   <div className="min-w-[180px]">

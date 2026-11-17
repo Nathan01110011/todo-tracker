@@ -44,7 +44,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const markersSheet = doc.sheetsByTitle['Markers'];
     const hotelsSheet = doc.sheetsByTitle['Hotels'];
     const lockedSheet = doc.sheetsByTitle['Locked'];
-    const photosSheet = doc.sheetsByTitle['Photos'];
+    let photosSheet = doc.sheetsByTitle['Photos'];
     let diarySheet = doc.sheetsByTitle['Diary'];
 
     const ensurePlaceColumns = async (sheet: any, includeEventDates = false) => {
@@ -221,6 +221,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         lng: parseFloat(row.get('lng')) || 0,
         scope: row.get('scope') || 'Austin',
         createdAt: row.get('createdAt') || '',
+        photos: photoMap['diary:' + (row.get('id') || '')] || [],
       }));
 
       return res.status(200).json({ places, markers, hotels, routes, diaryEntries, experiences });
@@ -455,6 +456,84 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(200).json({ success: true, checked: candidates.length, recovered, unavailable, failed, updates });
       }
 
+      // Standalone diary photos are not places, so uploading them must not
+      // create a visit or change the status/date of any tracker location.
+      if (type === 'diary' && action === 'addPhoto') {
+        if (!diarySheet) return res.status(500).json({ error: 'Diary sheet unavailable.' });
+        if (!photosSheet) {
+          photosSheet = await doc.addSheet({
+            title: 'Photos',
+            headerValues: ['locationId', 'url', 'comment', 'capturedAt', 'uploadedAt']
+          });
+        }
+        await ensurePhotoColumns(photosSheet);
+
+        const url = String(photoUrl || '').trim();
+        const cloudName = String(process.env.VITE_CLOUDINARY_CLOUD_NAME || '').trim();
+        let validUrl = false;
+        try {
+          const parsed = new URL(url);
+          validUrl = parsed.protocol === 'https:' && parsed.hostname === 'res.cloudinary.com'
+            && !!cloudName && parsed.pathname.startsWith('/' + cloudName + '/image/upload/');
+        } catch { /* invalid image URL */ }
+        if (!validUrl) return res.status(400).json({ error: 'A valid uploaded Cloudinary photo URL is required.' });
+
+        const now = new Date();
+        const today = now.toISOString().slice(0, 10);
+        const dateMatch = String(capturedAt || '').match(/^(\d{4})[:-](\d{2})[:-](\d{2})(?:[ T]|$)/);
+        const cameraDate = dateMatch ? dateMatch[1] + '-' + dateMatch[2] + '-' + dateMatch[3] : '';
+        const isValidDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value)
+          && !Number.isNaN(Date.parse(value + 'T00:00:00Z'))
+          && new Date(value + 'T00:00:00Z').toISOString().slice(0, 10) === value;
+        const fallbackDate = String(date || '');
+        const entryDate = isValidDate(cameraDate) && cameraDate <= today ? cameraDate
+          : isValidDate(fallbackDate) && fallbackDate <= today ? fallbackDate : today;
+        const latitude = Number(lat), longitude = Number(lng);
+        const hasCoordinates = lat !== null && lat !== undefined && lng !== null && lng !== undefined
+          && Number.isFinite(latitude) && Number.isFinite(longitude)
+          && Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180
+          && !(latitude === 0 && longitude === 0);
+
+        const existingPhotos = await photosSheet.getRows();
+        const existing = existingPhotos.find(row => row.get('url') === url && String(row.get('locationId') || '').startsWith('diary:'));
+        if (existing) {
+          const existingId = String(existing.get('locationId')).slice('diary:'.length);
+          const existingEntry = (await diarySheet.getRows()).find(row => row.get('id') === existingId);
+          if (existingEntry) {
+            return res.status(200).json({ success: true, entry: {
+              id: existingId, date: existingEntry.get('date'), title: existingEntry.get('title'),
+              notes: existingEntry.get('notes') || '', placeId: '', placeType: 'general-photo',
+              name: 'General photos', address: '', lat: Number(existingEntry.get('lat')) || 0,
+              lng: Number(existingEntry.get('lng')) || 0, scope: 'General',
+              createdAt: existingEntry.get('createdAt') || '',
+              photos: [{ url, comment: existing.get('comment') || '', capturedAt: existing.get('capturedAt') || '', uploadedAt: existing.get('uploadedAt') || '' }]
+            } });
+          }
+        }
+
+        const newId = Math.random().toString(36).slice(2, 11);
+        const normalized = {
+          id: newId, date: entryDate, title: 'Photo', notes: '',
+          placeId: '', placeType: 'general-photo', name: 'General photos',
+          address: '', lat: hasCoordinates ? latitude : 0, lng: hasCoordinates ? longitude : 0,
+          scope: 'General', createdAt: now.toISOString()
+        };
+        const photo = {
+          url, comment: '', capturedAt: String(capturedAt || ''),
+          uploadedAt: String(uploadedAt || now.toISOString())
+        };
+        const diaryRow = await diarySheet.addRow({
+          ...normalized, lat: String(normalized.lat), lng: String(normalized.lng)
+        });
+        try {
+          await photosSheet.addRow({ locationId: 'diary:' + newId, ...photo });
+        } catch (error) {
+          await diaryRow.delete();
+          throw error;
+        }
+        return res.status(200).json({ success: true, entry: { ...normalized, photos: [photo] } });
+      }
+
       if (photoUrl && id && photosSheet) {
         await ensurePhotoColumns(photosSheet);
         const normalizedComment = String(photoComment || '').trim();
@@ -595,6 +674,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           const row = rows.find(r => r.get('id') === id);
           if (!row) return res.status(404).json({ error: 'Diary entry not found' });
           if (action === 'delete') {
+            if (row.get('placeType') === 'general-photo' && photosSheet) {
+              const attached = (await photosSheet.getRows())
+                .filter(photo => photo.get('locationId') === 'diary:' + id);
+              const cloudName = process.env.VITE_CLOUDINARY_CLOUD_NAME;
+              const apiKey = process.env.CLOUDINARY_API_KEY;
+              const apiSecret = process.env.CLOUDINARY_API_SECRET;
+              if (cloudName && apiKey && apiSecret && attached.length) {
+                cloudinary.config({ cloud_name: cloudName, api_key: apiKey, api_secret: apiSecret });
+                for (const photo of attached) {
+                  const url = new URL(String(photo.get('url')));
+                  if (url.hostname !== 'res.cloudinary.com' || !url.pathname.startsWith('/' + cloudName + '/image/upload/')) {
+                    return res.status(400).json({ error: 'Unexpected diary photo URL.' });
+                  }
+                  const filename = decodeURIComponent(url.pathname.split('/image/upload/')[1])
+                    .replace(/^v[0-9]+\//, '').replace(/\.[^/.]+$/, '');
+                  await cloudinary.uploader.destroy(filename, { resource_type: 'image', invalidate: true });
+                }
+              }
+              for (const photo of attached) await photo.delete();
+            }
             await row.delete();
             return res.status(200).json({ success: true });
           }
