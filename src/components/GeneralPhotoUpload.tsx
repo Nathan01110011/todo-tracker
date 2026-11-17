@@ -31,6 +31,11 @@ export default function GeneralPhotoUpload({ password, onUploaded, onMessage }: 
         const file = files[index];
         setProgress('Uploading ' + (index + 1) + '/' + files.length + '…');
         try {
+          // Android's image-only picker often redacts EXIF GPS. A general
+          // document picker can expose the original in Files/DCIM/Camera.
+          const isImage = file.type.startsWith('image/') ||
+            /\.(jpe?g|png|webp|heic|heif|avif|gif|bmp|tiff?)$/i.test(file.name);
+          if (!isImage) throw new Error('Select an image file');
           const local = await readPhotoExif(file);
           const form = new FormData();
           form.append('file', file);
@@ -81,7 +86,7 @@ export default function GeneralPhotoUpload({ password, onUploaded, onMessage }: 
       if (inputRef.current) inputRef.current.value = '';
       const message = [
         saved ? 'Added ' + saved + ' general photo' + (saved === 1 ? '' : 's') + ' to Diary.' : '',
-        missingGps && saved ? missingGps + ' without GPS (no map pin).' : '',
+        missingGps && saved ? missingGps + ' without GPS. Android may hide GPS in selected images; choose the original via Files / DCIM / Camera, or use Set location on the photo.' : '',
         fallbackDates && saved ? fallbackDates + ' used the file date (no camera timestamp).' : '',
         failures.length ? failures.length + ' failed: ' + failures.slice(0, 2).join('; ') : ''
       ].filter(Boolean).join(' ');
@@ -91,9 +96,11 @@ export default function GeneralPhotoUpload({ password, onUploaded, onMessage }: 
 
   return (
     <>
-      <input ref={inputRef} type="file" accept="image/*,.heic,.heif" multiple hidden
-        aria-label="Choose general diary photos" onChange={handleFiles} />
-      <button type="button" className="secondary-button collection-add" disabled={!!progress || !password}
+      {/* Avoid image-only accept: Android's Photos picker can redact GPS EXIF.
+          Read from the native file picker; reject non-image files above. */}
+      <input ref={inputRef} type="file" multiple hidden
+        aria-label="Choose original diary photo files" onChange={handleFiles} />
+      <button type="button" className="secondary-button collection-add" title="For GPS on Android, browse Files → DCIM → Camera" disabled={!!progress || !password}
         onClick={() => inputRef.current?.click()}>
         {progress ? <Loader2 size={17} className="animate-spin" /> : <Camera size={17} />}
         <span>{progress || 'Upload photos'}</span>

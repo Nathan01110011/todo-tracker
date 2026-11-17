@@ -7,6 +7,7 @@ import 'leaflet/dist/leaflet.css';
 import TrackerNavigation, { type TrackerSection } from './components/TrackerNavigation';
 import ExperiencesPanel from './components/ExperiencesPanel';
 import GeneralPhotoUpload from './components/GeneralPhotoUpload';
+import PhotoLocationEditor from './components/PhotoLocationEditor';
 import { searchLocations } from './lib/locationSearch';
 import { PLACE_CATEGORIES, LOCATION_CATEGORIES } from './lib/placeCategories';
 import { emptyExperiences, type Experiences } from './lib/experiences';
@@ -796,6 +797,7 @@ const App = () => {
   const [routes, setRoutes] = useState<Route[]>([]);
   const [experiences, setExperiences] = useState<Experiences>(emptyExperiences);
   const [diaryEntries, setDiaryEntries] = useState<DiaryEntry[]>([]);
+  const [photoLocationEntry, setPhotoLocationEntry] = useState<DiaryEntry | null>(null);
   const [diaryView, setDiaryView] = useState<'all' | 'photos'>('all');
   const [isJourneyMode, setIsJourneyMode] = useState(false);
   const [selectedJourneyPlaces, setSelectedJourneyPlaces] = useState<string[]>([]);
@@ -925,7 +927,7 @@ const App = () => {
 
   useEffect(() => { localStorage.setItem('todo_tracker_collection_v1', JSON.stringify(collectionPreferences)); }, [collectionPreferences]);
 
-  const dialogKey = confirmationDialog ? 'confirmation' : editingItem && isOwner ? 'edit' : lightboxState ? 'lightbox' : showDebugPanel && isOwner ? 'settings' : showSignIn && !isOwner ? 'sign-in' : showEventDateDialog && isOwner ? 'event' : showAddPlace && isOwner ? 'add' : activePhotoItem ? 'photos' : showDiaryDialog && isOwner ? 'diary' : detailItemId ? 'place-details' : '';
+  const dialogKey = confirmationDialog ? 'confirmation' : photoLocationEntry && isOwner ? 'photo-location' : editingItem && isOwner ? 'edit' : lightboxState ? 'lightbox' : showDebugPanel && isOwner ? 'settings' : showSignIn && !isOwner ? 'sign-in' : showEventDateDialog && isOwner ? 'event' : showAddPlace && isOwner ? 'add' : activePhotoItem ? 'photos' : showDiaryDialog && isOwner ? 'diary' : detailItemId ? 'place-details' : '';
   useEffect(() => {
     if (!dialogKey) return;
     const previousFocus = document.activeElement as HTMLElement | null;
@@ -936,6 +938,7 @@ const App = () => {
       if (event.key === 'Escape') {
         event.preventDefault();
         if (dialogKey === 'confirmation') { confirmationDialog?.onCancel?.(); setConfirmationDialog(null); }
+        else if (dialogKey === 'photo-location') setPhotoLocationEntry(null);
         else if (dialogKey === 'edit') setEditingItem(null);
         else if (dialogKey === 'lightbox') setLightboxState(null);
         else if (dialogKey === 'settings') setShowDebugPanel(false);
@@ -1217,6 +1220,21 @@ const App = () => {
       },
       onCancel: () => {}
     });
+  };
+
+  const saveDiaryPhotoLocation = async (id: string, lat: number, lng: number) => {
+    if (!isOwner || !appPassword) throw new Error('Sign in to edit photo locations.');
+    const response = await fetch('/api/places', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: appPassword },
+      body: JSON.stringify({ type: 'diary', action: 'updateLocation', id, lat, lng })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Could not save photo location.');
+    setDiaryEntries(current => current.map(entry => entry.id === id
+      ? { ...entry, lat: data.lat, lng: data.lng } : entry));
+    setPhotoLocationEntry(null);
+    setToastMessage('Photo GPS location saved.');
   };
 
   const handlePhotoUpload = async (item: Place, photo: PhotoDetails) => {
@@ -2153,6 +2171,13 @@ const App = () => {
           </div>
         </div>
       )}
+      {isOwner && photoLocationEntry && <PhotoLocationEditor
+        key={photoLocationEntry.id}
+        entry={photoLocationEntry}
+        center={SCOPE_CONFIG[activeScope].center}
+        onClose={() => setPhotoLocationEntry(null)}
+        onSave={(lat, lng) => saveDiaryPhotoLocation(photoLocationEntry.id, lat, lng)}
+      />}
       {lightboxState && (<Lightbox urls={lightboxState.urls} initialIndex={lightboxState.index} onClose={() => setLightboxState(null)} />)}
       {isOwner && showAddPlace && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[150] flex items-center justify-center p-3 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="add-place-heading">
@@ -2258,8 +2283,14 @@ const App = () => {
                         <div className="min-w-0">
                           <h4 className="font-bold text-base text-slate-900">{entry.lat && entry.lng ? <button type="button" className="text-left hover:text-indigo-600" onClick={() => locateItem(entry)}>{entry.placeType === 'general-photo' ? 'General photo' : entry.title}</button> : entry.placeType === 'general-photo' ? 'General photo' : entry.title}</h4>
                           {entry.placeType === 'general-photo' && <p className="flex items-center gap-1.5 text-xs text-slate-500 mt-1"><Camera size={12} /> General photos · {formatPhotoTimestamp(entry.photos?.[0]?.capturedAt || '') || 'Time unavailable'}</p>}
-                          {entry.placeType === 'general-photo' && entry.lat && entry.lng && <p className="text-xs text-slate-500 mt-1 flex items-center gap-1"><MapPin size={11} /> GPS: {entry.lat.toFixed(5)}, {entry.lng.toFixed(5)}</p>}
-                          {entry.placeType === 'general-photo' && !entry.lat && !entry.lng && <p className="text-xs text-slate-400 mt-1">No GPS coordinates in this photo</p>}
+                          {entry.placeType === 'general-photo' && Boolean(entry.lat && entry.lng) && <p className="text-xs text-slate-500 mt-1 flex items-center gap-1"><MapPin size={11} /> GPS: {entry.lat.toFixed(5)}, {entry.lng.toFixed(5)}</p>}
+                          {entry.placeType === 'general-photo' && !entry.lat && !entry.lng && <p className="text-xs text-slate-400 mt-1">No GPS supplied by the photo picker</p>}
+                          {entry.placeType === 'general-photo' && isOwner && (
+                            <button type="button" className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-indigo-600 hover:underline"
+                              onClick={() => setPhotoLocationEntry(entry)}>
+                              <MapPin size={13} /> {entry.lat && entry.lng ? 'Edit location' : 'Set location / recover GPS'}
+                            </button>
+                          )}
                           {entry.address && <p className="text-xs text-indigo-500 mt-1 flex items-center gap-1 truncate"><MapPin size={11} className="shrink-0" /> {entry.address}</p>}
                         </div>
                         {isOwner && <button onClick={event => { event.stopPropagation(); deleteDiaryEntry(entry); }} className="p-1.5 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-lg" title="Delete diary entry"><Trash2 size={16} /></button>}
