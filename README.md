@@ -11,6 +11,7 @@ A modern, interactive relocation and travel tracker built with React, TypeScript
 - **🗺️ Multiple Scopes**: Toggle between Austin, Texas, USA, and UK & Ireland views with automatic map zooming and filtering.
 - **🏨 Hotel Tracking**: A dedicated section for tracking accommodations separate from destinations.
 - **🏛️ Landmarks**: A first-class place category for monuments, historic sites and notable locations, available when adding/editing locations and in category filters. Landmarks share normal place visit dates, notes, photos, maps and trip features; no new Sheet tab is required.
+- **🏛️ Museums**: A separate place category for museums and galleries, available when adding/editing and in category filters, with its own icon. Uses the existing Places sheet and standard visit tracking, maps, notes, photos, and trips.
 - **🔍 Smart Search**: Add new locations instantly using Nominatim (OpenStreetMap) search.
 - **🧳 Trips**: Build ordered routes or flexible unordered city breaks, check off stops as you go, and complete a trip without marking skipped places as visited.
 - **📖 Diary**: Log activities for today or earlier, attach tracker locations or arbitrary places, and capture the current location with browser geolocation.
