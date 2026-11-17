@@ -1,8 +1,8 @@
-import { MapPin, Utensils, Wine, ShoppingBag, Trophy, Calendar, Bed, Compass, Check, Camera, Star, ChevronRight, RotateCcw } from 'lucide-react';
+import { MapPin, Utensils, Wine, ShoppingBag, Trophy, Calendar, Bed, Compass, Landmark, Check, Camera, Star, ChevronRight, RotateCcw } from 'lucide-react';
 import type { PlaceItem } from '../lib/collection';
 import { photoCount, isWouldReturn } from '../lib/collection';
 
-const categoryIcons = { Food: Utensils, Drinks: Wine, Activities: Compass, Shopping: ShoppingBag, Sport: Trophy, Events: Calendar, Hotels: Bed };
+const categoryIcons = { Food: Utensils, Drinks: Wine, Activities: Compass, Landmarks: Landmark, Shopping: ShoppingBag, Sport: Trophy, Events: Calendar, Hotels: Bed };
 
 interface Props {
   item: PlaceItem;
