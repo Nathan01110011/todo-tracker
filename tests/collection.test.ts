@@ -32,17 +32,23 @@ test('Would Return collection supports places and hotels and existing browsing t
 });
 
 
-test('Landmarks appear in add/edit category choices and browsing filters', () => {
+test('Landmarks and Museums appear in add/edit choices and browsing filters', () => {
   assert.equal(PLACE_CATEGORIES.includes('Landmarks'), true);
+  assert.equal(PLACE_CATEGORIES.includes('Museums'), true);
+  assert.equal(LOCATION_CATEGORIES.includes('Museums'), true);
+  assert.equal(LOCATION_CATEGORIES.filter(category => category === 'Museums').length, 1);
   assert.equal(LOCATION_CATEGORIES.includes('Landmarks'), true);
   assert.equal(LOCATION_CATEGORIES.filter(category => category === 'Landmarks').length, 1);
   const sites: PlaceItem[] = [
     { ...place('The Alamo', 'To Do', ''), category: 'Landmarks' },
     { ...place('Restaurant', 'To Do', ''), category: 'Food' },
-    { ...place('Capitol', 'Visited', 'TRUE'), category: 'Landmarks' }
+    { ...place('Capitol', 'Visited', 'TRUE'), category: 'Landmarks' },
+    { ...place('History Museum', 'Visited', 'FALSE'), category: 'Museums' }
   ];
   const landmarks = sites.filter(site => site.category === 'Landmarks');
   assert.deepEqual(landmarks.map(site => site.name), ['The Alamo', 'Capitol']);
-  assert.deepEqual(groupCollection(sites, 'category').map(group => group.label), ['Food', 'Landmarks']);
+  assert.deepEqual(groupCollection(sites, 'category').map(group => group.label), ['Food', 'Landmarks', 'Museums']);
+  assert.deepEqual(sites.filter(site => site.category === 'Museums').map(site => site.name), ['History Museum']);
+  assert.equal(matchesCollectionSearch(sites[3], 'museums'), true);
   assert.equal(matchesCollectionSearch(landmarks[0], 'landmarks'), true);
 });
