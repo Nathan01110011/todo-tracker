@@ -673,6 +673,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           const rows = await diarySheet.getRows();
           const row = rows.find(r => r.get('id') === id);
           if (!row) return res.status(404).json({ error: 'Diary entry not found' });
+          if (action === 'updateLocation') {
+            // Owners can restore missing GPS on standalone photos without
+            // modifying any saved place, reuploading, or changing the date.
+            if (row.get('placeType') !== 'general-photo') {
+              return res.status(400).json({ error: 'Only general diary photos support photo location changes.' });
+            }
+            if (lat === null || lat === undefined || lng === null || lng === undefined ||
+                (typeof lat !== 'number' && typeof lat !== 'string') ||
+                (typeof lng !== 'number' && typeof lng !== 'string') ||
+                String(lat).trim() === '' || String(lng).trim() === '') {
+              return res.status(400).json({ error: 'Valid latitude and longitude are required.' });
+            }
+            const latitude = Number(lat), longitude = Number(lng);
+            if (!Number.isFinite(latitude) || !Number.isFinite(longitude) ||
+                Math.abs(latitude) > 90 || Math.abs(longitude) > 180 ||
+                (latitude === 0 && longitude === 0)) {
+              return res.status(400).json({ error: 'Coordinates are out of range.' });
+            }
+            row.set('lat', String(latitude));
+            row.set('lng', String(longitude));
+            await row.save();
+            return res.status(200).json({ success: true, lat: latitude, lng: longitude });
+          }
           if (action === 'delete') {
             if (row.get('placeType') === 'general-photo' && photosSheet) {
               const attached = (await photosSheet.getRows())
