@@ -199,6 +199,29 @@ test('standalone diary photos save camera date and GPS without marking a destina
     assert.equal(noGps.data.entry.lng, 0);
     assert.equal(noGps.data.entry.photos.length, 1);
 
+    // GPS metadata can be restored later from a reselected original file or
+    // from a manually placed map pin, without changing image or capture date.
+    const invalidCoordinates = await request('POST', {
+      type:'diary', action:'updateLocation', id:noGps.data.entry.id, lat:91, lng:-97
+    }, 'test-owner');
+    assert.equal(invalidCoordinates.status, 400);
+    const missingCoordinates = await request('POST', {
+      type:'diary', action:'updateLocation', id:noGps.data.entry.id, lat:null, lng:null
+    }, 'test-owner');
+    assert.equal(missingCoordinates.status, 400);
+    const savedPin = await request('POST', {
+      type:'diary', action:'updateLocation', id:noGps.data.entry.id, lat:30.264, lng:-97.741
+    }, 'test-owner');
+    assert.equal(savedPin.status, 200);
+    assert.deepEqual({ lat:savedPin.data.lat, lng:savedPin.data.lng },
+      { lat:30.264, lng:-97.741 });
+    const pinned = (await request('GET')).data.diaryEntries[0];
+    assert.equal(pinned.id, noGps.data.entry.id);
+    assert.equal(pinned.lat, 30.264);
+    assert.equal(pinned.lng, -97.741);
+    assert.equal(pinned.date, '2026-11-09');
+    assert.equal(pinned.photos[0].url, noGpsUrl);
+
     const external = await request('POST', { type:'diary', action:'addPhoto',
       photoUrl:'https://example.com/evil.jpg' }, 'test-owner');
     assert.equal(external.status, 400);
