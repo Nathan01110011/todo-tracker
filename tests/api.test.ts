@@ -209,3 +209,40 @@ test('standalone diary photos save camera date and GPS without marking a destina
     else process.env.VITE_CLOUDINARY_CLOUD_NAME = previousCloud;
   }
 });
+
+
+test('Landmarks are ordinary saved places with editable category, visit dates and filtering metadata', async () => {
+  sharedDoc.sheetsByTitle = {};
+  await sharedDoc.addSheet({ title: 'Places', headerValues: [
+    'id', 'category', 'name', 'address', 'lat', 'lng', 'scope', 'status', 'date', 'details'
+  ] });
+  const created = await request('POST', {
+    type: 'place', category: 'Landmarks', name: 'State Capitol',
+    address: 'Austin, Texas', lat: 30.2747, lng: -97.7404, scope: 'Austin'
+  }, 'test-owner');
+  assert.equal(created.status, 200);
+  assert.ok(created.data.id);
+
+  const firstRead = await request('GET');
+  assert.equal(firstRead.data.places[0].category, 'Landmarks');
+  assert.equal(firstRead.data.places[0].status, 'To Do');
+  assert.equal(firstRead.data.places[0].scope, 'Austin');
+
+  const visited = await request('POST', {
+    id: created.data.id, type: 'place', category: 'Landmarks', status: 'Visited',
+    date: '2026-11-16', notes: 'Nice view'
+  }, 'test-owner');
+  assert.equal(visited.status, 200);
+  const secondRead = await request('GET');
+  assert.equal(secondRead.data.places[0].category, 'Landmarks');
+  assert.equal(secondRead.data.places[0].status, 'Visited');
+  assert.equal(secondRead.data.places[0].date, '2026-11-16');
+  assert.equal(secondRead.data.places[0].notes, 'Nice view');
+
+  const reclassified = await request('POST', {
+    id: created.data.id, type: 'place', category: 'Activities'
+  }, 'test-owner');
+  assert.equal(reclassified.status, 200);
+  const finalRead = await request('GET');
+  assert.equal(finalRead.data.places[0].category, 'Activities');
+});
