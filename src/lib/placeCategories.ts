@@ -4,8 +4,8 @@
  */
 export const PLACE_CATEGORIES = [
   'Food', 'Drinks', 'Activities', 'Landmarks', 'Museums', 'Shopping', 'Sport', 'Events', 'Other'
-] as const;
+];
 
 export const LOCATION_CATEGORIES = [
   'All', 'Food', 'Drinks', 'Activities', 'Landmarks', 'Shopping', 'Sport', 'Events', 'Hotels', 'Other'
-] as const;
+];
