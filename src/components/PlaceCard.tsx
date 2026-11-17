@@ -1,4 +1,4 @@
-import { MapPin, Utensils, Wine, ShoppingBag, Trophy, Calendar, Bed, Compass, Check, ChevronRight, Camera, RotateCcw, Star } from 'lucide-react';
+import { MapPin, Utensils, Wine, ShoppingBag, Trophy, Calendar, Bed, Compass, Landmark, Check, ChevronRight, Camera, RotateCcw, Star } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import type { Place } from '../types';
 import { photoCount, isWouldReturn } from '../lib/collection';
@@ -16,7 +16,7 @@ interface Props {
   onPhotos: () => void;
 }
 
-const categoryIcons = { Food: Utensils, Drinks: Wine, Activities: Compass, Shopping: ShoppingBag, Sport: Trophy, Events: Calendar, Hotels: Bed };
+const categoryIcons = { Food: Utensils, Drinks: Wine, Activities: Compass, Landmarks: Landmark, Shopping: ShoppingBag, Sport: Trophy, Events: Calendar, Hotels: Bed };
 
 export default function PlaceCard({ item, isOwner, showTracker, distance, eventDates, onLocate, onOpen, onHover, onUpdate, onPhotos }: Props) {
   const CategoryIcon = categoryIcons[item.category as keyof typeof categoryIcons] || MapPin;
