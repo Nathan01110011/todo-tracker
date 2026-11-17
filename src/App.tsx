@@ -7,6 +7,7 @@ import 'leaflet/dist/leaflet.css';
 import TrackerNavigation, { type TrackerSection } from './components/TrackerNavigation';
 import ExperiencesPanel from './components/ExperiencesPanel';
 import GeneralPhotoUpload from './components/GeneralPhotoUpload';
+import { PLACE_CATEGORIES, LOCATION_CATEGORIES } from './lib/placeCategories';
 import { emptyExperiences, type Experiences } from './lib/experiences';
 import PlaceCard from './components/PlaceCard';
 import PlaceRow from './components/PlaceRow';
@@ -292,7 +293,7 @@ const EditLocationModal = ({ item, onSave, onDelete, onClose }: { item: Place, o
             <label className="block space-y-1">
               <span className="text-xs font-bold tracking-wide text-slate-400">Category</span>
               <select value={category} onChange={(e) => setCategory(e.target.value)} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm">
-                {['Food', 'Drinks', 'Activities', 'Shopping', 'Sport', 'Events', 'Other'].map(option => <option key={option} value={option}>{option}</option>)}
+                {PLACE_CATEGORIES.map(option => <option key={option} value={option}>{option}</option>)}
               </select>
             </label>
           )}
@@ -1563,7 +1564,7 @@ const App = () => {
     });
   };
 
-  const placeCategories = ['All', 'Food', 'Drinks', 'Activities', 'Shopping', 'Sport', 'Events', 'Hotels', 'Other'];
+  const placeCategories = LOCATION_CATEGORIES;
   const activeSection: TrackerSection = filter === 'Saved' ? 'Pins' : filter === 'Return' ? 'Would Return' : filter === 'Nearby' || filter === 'Trips' || filter === 'Diary' || filter === 'Experiences' ? filter : 'Places';
   const isPlaceCollection = activeSection === 'Places' || activeSection === 'Nearby' || activeSection === 'Would Return';
   const browseAllTrackers = isPlaceCollection && allTrackers;
