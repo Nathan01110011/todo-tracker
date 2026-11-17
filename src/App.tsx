@@ -7,6 +7,7 @@ import 'leaflet/dist/leaflet.css';
 import TrackerNavigation, { type TrackerSection } from './components/TrackerNavigation';
 import ExperiencesPanel from './components/ExperiencesPanel';
 import GeneralPhotoUpload from './components/GeneralPhotoUpload';
+import { searchLocations } from './lib/locationSearch';
 import { PLACE_CATEGORIES, LOCATION_CATEGORIES } from './lib/placeCategories';
 import { emptyExperiences, type Experiences } from './lib/experiences';
 import PlaceCard from './components/PlaceCard';
@@ -85,26 +86,22 @@ const SCOPE_CONFIG = {
   Austin: {
     label: 'Austin',
     center: [30.2672, -97.7431] as [number, number],
-    zoom: 12,
-    searchParams: '&viewbox=-98.3,30.7,-97.2,29.8&bounded=1'
+    zoom: 12
   },
   Texas: {
     label: 'Texas',
     center: [31.0, -99.9018] as [number, number],
-    zoom: 6,
-    searchParams: '&viewbox=-106.65,36.5,-93.51,25.84&bounded=1'
+    zoom: 6
   },
   USA: {
     label: 'USA',
     center: [37.0902, -95.7129] as [number, number],
-    zoom: 4,
-    searchParams: ''
+    zoom: 4
   },
   'UK & Ireland': {
     label: 'UK & Ireland',
     center: [54.5, -4.5] as [number, number],
-    zoom: 5,
-    searchParams: '&viewbox=-11,61.2,2.2,49.8&bounded=1'
+    zoom: 5
   }
 };
 
@@ -905,6 +902,20 @@ const App = () => {
   const [isDiarySearching, setIsDiarySearching] = useState(false);
   const [isLocating, setIsLocating] = useState(false);
   const [diaryMarkVisited, setDiaryMarkVisited] = useState(true);
+  const placeSearchSequence = useRef(0);
+  const diarySearchSequence = useRef(0);
+  const currentSearchScope = useRef(activeScope);
+  currentSearchScope.current = activeScope;
+
+  // Don't show an earlier region's results after switching trackers.
+  useEffect(() => {
+    placeSearchSequence.current += 1;
+    diarySearchSequence.current += 1;
+    setSearchResults([]);
+    setDiarySearchResults([]);
+    setIsSearching(false);
+    setIsDiarySearching(false);
+  }, [activeScope]);
 
   useEffect(() => {
     const handleResize = () => setWindowWidth(window.innerWidth);
@@ -1082,15 +1093,19 @@ const App = () => {
 
   const searchDiaryPlaces = async () => {
     if (!diarySearch.trim()) return;
+    const scope = activeScope;
+    const requestId = ++diarySearchSequence.current;
     setIsDiarySearching(true);
+    setDiarySearchResults([]);
     try {
-      const scopeConfig = SCOPE_CONFIG[activeScope];
-      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(diarySearch)}${scopeConfig.searchParams}`);
-      setDiarySearchResults(await response.json());
-    } catch (error) {
-      setToastMessage('Could not search for that location.');
+      const results = await searchLocations(scope, diarySearch);
+      if (diarySearchSequence.current === requestId && currentSearchScope.current === scope) {
+        setDiarySearchResults(results);
+      }
+    } catch {
+      if (diarySearchSequence.current === requestId) setToastMessage('Could not search for that location.');
     } finally {
-      setIsDiarySearching(false);
+      if (diarySearchSequence.current === requestId) setIsDiarySearching(false);
     }
   };
 
@@ -2146,13 +2161,20 @@ const App = () => {
             {!pendingPlace ? <>
               <form onSubmit={async (event) => {
                 event.preventDefault(); if (!searchQuery.trim()) return;
+                const scope = activeScope;
+                const requestId = ++placeSearchSequence.current;
                 setIsSearching(true);
+                setSearchResults([]);
                 try {
-                  const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}${SCOPE_CONFIG[activeScope].searchParams}`);
-                  if (!response.ok) throw new Error('Search failed');
-                  setSearchResults(await response.json());
-                } catch { setToastMessage('Could not search for that place. Please try again.'); }
-                finally { setIsSearching(false); }
+                  const results = await searchLocations(scope, searchQuery);
+                  if (placeSearchSequence.current === requestId && currentSearchScope.current === scope) {
+                    setSearchResults(results);
+                  }
+                } catch {
+                  if (placeSearchSequence.current === requestId) setToastMessage('Could not search for that place. Please try again.');
+                } finally {
+                  if (placeSearchSequence.current === requestId) setIsSearching(false);
+                }
               }} className="space-y-3">
                 <label className="place-field"><span>Save to tracker</span><select aria-label="Save place to tracker" value={activeScope} onChange={event => { setActiveScope(event.target.value as ScopeName); setSearchResults([]); setMapTarget(null); }}>{SCOPE_NAMES.map(scope => <option key={scope} value={scope}>{scope}</option>)}</select></label>
                 <label className="place-field"><span>Name or address in {activeScope}</span><input autoFocus type="search" aria-label="Search for a new place" value={searchQuery} onChange={event => setSearchQuery(event.target.value)} placeholder="e.g. Museum of the Weird" /></label>
