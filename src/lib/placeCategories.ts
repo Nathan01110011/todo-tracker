@@ -7,5 +7,5 @@ export const PLACE_CATEGORIES = [
 ];
 
 export const LOCATION_CATEGORIES = [
-  'All', 'Food', 'Drinks', 'Activities', 'Landmarks', 'Shopping', 'Sport', 'Events', 'Hotels', 'Other'
+  'All', 'Food', 'Drinks', 'Activities', 'Landmarks', 'Museums', 'Shopping', 'Sport', 'Events', 'Hotels', 'Other'
 ];
