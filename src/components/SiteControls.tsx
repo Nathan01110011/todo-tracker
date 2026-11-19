@@ -43,8 +43,8 @@ function Popup({ children, label, display, icon, disabled, className, wide = fal
   }, [open, wide]);
   useEffect(() => { if (disabled) setOpen(false); }, [disabled]);
   return <span className="site-control">
-    <button id={id} ref={trigger} type="button" className={'site-control-trigger ' + (className || '')} disabled={disabled} aria-label={label + ': ' + (typeof display === 'string' ? display : '')} aria-haspopup="dialog" aria-expanded={open} aria-controls={open ? uid : undefined} onClick={() => setOpen(v => !v)}><span>{display}</span>{icon}</button>
-    {open && createPortal(<div id={uid} ref={panel} role="dialog" aria-label={label} className="site-control-popover" style={position} onKeyDown={e => {
+    <button id={id} ref={trigger} type="button" className={'site-control-trigger ' + ((className || '').includes('mt-1') ? 'site-control-spaced' : '')} disabled={disabled} aria-label={label + ': ' + (typeof display === 'string' ? display : '')} aria-haspopup="dialog" aria-expanded={open} aria-controls={open ? uid : undefined} onClick={() => setOpen(v => !v)}><span>{display}</span>{icon}</button>
+    {open && createPortal(<div id={uid} ref={panel} role="dialog" aria-label={label} className="site-control-popover" style={position} onClick={e => e.stopPropagation()} onKeyDown={e => {
       if (e.key === 'Escape') { e.stopPropagation(); close(); }
       if (e.key === 'Tab') {
         // Keep the temporary dialog keyboard-accessible; Escape returns to the trigger.
