@@ -80,6 +80,8 @@ interface Route {
   scope: string;
   tripType: 'ordered' | 'unordered';
   completedPlaceIds: string[];
+  startDate?: string;
+  endDate?: string;
   status: 'planned' | 'active' | 'completed';
 }
 
@@ -800,6 +802,9 @@ const App = () => {
   const [photoLocationEntry, setPhotoLocationEntry] = useState<DiaryEntry | null>(null);
   const [diaryView, setDiaryView] = useState<'all' | 'photos'>('all');
   const [isJourneyMode, setIsJourneyMode] = useState(false);
+  const [editingRouteId, setEditingRouteId] = useState<string | null>(null);
+  const [journeyStartDate, setJourneyStartDate] = useState('');
+  const [journeyEndDate, setJourneyEndDate] = useState('');
   const [selectedJourneyPlaces, setSelectedJourneyPlaces] = useState<string[]>([]);
   const [journeyName, setJourneyName] = useState('');
   const [tripType, setTripType] = useState<'ordered' | 'unordered'>('ordered');
@@ -991,6 +996,7 @@ const App = () => {
     setAppPassword(null);
     setPwInput('');
     setIsJourneyMode(false);
+    setEditingRouteId(null);
     setEditingItem(null);
     closePlaceDetails();
     setPendingPlace(null);
@@ -1415,7 +1421,8 @@ const App = () => {
 
     const selectedItems = getJourneyItems(ids);
 
-    if (selectedItems.length < 2) return ids;
+    // Do not silently drop a saved stop that cannot currently be resolved.
+    if (selectedItems.length !== ids.length || selectedItems.length < 2) return ids;
 
     const result = [selectedItems[0]];
     const unvisited = selectedItems.slice(1);
@@ -1475,37 +1482,73 @@ const App = () => {
   };
 
   const toggleJourneyPlace = (id: string) => {
+    if (isSavingRoute) return;
     setSelectedJourneyPlaces(prev =>
       prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
     );
   };
 
+  const normalizeJourneyId = (id: string) => id.includes(':') ? id : `place:${id}`;
+
+  const moveJourneyPlace = (id: string, offset: number) => {
+    if (isSavingRoute) return;
+    setSelectedJourneyPlaces(current => {
+      const index = current.indexOf(id);
+      const target = index + offset;
+      if (index < 0 || target < 0 || target >= current.length) return current;
+      const next = [...current];
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+  };
+
+  const invalidJourneyDates = !!journeyEndDate && (!journeyStartDate || journeyEndDate < journeyStartDate);
+
   const saveRoute = async () => {
-    if (!isOwner) return;
-    if (!journeyName || selectedJourneyPlaces.length === 0) {
+    if (!isOwner || isSavingRoute) return;
+    const name = journeyName.trim();
+    if (!name || selectedJourneyPlaces.length === 0) {
       setToastMessage("Please enter a name and select at least one location.");
+      return;
+    }
+    if (invalidJourneyDates) {
+      setError('The end date must be on or after the start date.');
+      return;
+    }
+    const existing = editingRouteId ? routes.find(route => route.id === editingRouteId) : undefined;
+    if (editingRouteId && (!existing || existing.scope !== activeScope)) {
+      setError('This trip is no longer available in the current tracker.');
       return;
     }
     setIsSavingRoute(true);
     const optimizedIds = getJourneyPathIds(selectedJourneyPlaces);
+    const completedPlaceIds = existing
+      ? [...new Set(existing.completedPlaceIds.map(normalizeJourneyId))].filter(id => optimizedIds.includes(id))
+      : [];
+    const changes = { name, placeIds: optimizedIds, tripType, startDate: journeyStartDate, endDate: journeyEndDate, completedPlaceIds };
     try {
       const res = await fetch('/api/places', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': appPassword || '' },
-        body: JSON.stringify({ type: 'route', name: journeyName, placeIds: optimizedIds, scope: activeScope, tripType })
+        body: JSON.stringify(existing
+          ? { type: 'route', action: 'update', id: existing.id, ...changes }
+          : { type: 'route', scope: activeScope, ...changes })
       });
       const data = await res.json();
-      if (data.success) {
-        setRoutes(prev => [...prev, { id: data.id, name: journeyName, placeIds: optimizedIds, scope: activeScope, tripType, completedPlaceIds: [], status: 'planned' }]);
-        setIsJourneyMode(false);
-        setJourneyName('');
-        setSelectedJourneyPlaces([]);
-        setFilter('Trips');
-        setActiveRouteId(data.id);
-        setToastMessage(`Trip "${journeyName}" saved successfully!`);
+      if (!res.ok || !data.success) throw new Error(data.error || 'Failed to save trip.');
+      if (existing) {
+        setRoutes(prev => prev.map(route => route.id === existing.id ? { ...route, ...changes } : route));
       } else {
-        setError(data.error || "Failed to save trip.");
+        setRoutes(prev => [...prev, { ...changes, id: data.id, scope: activeScope, status: 'planned' }]);
       }
+      setIsJourneyMode(false);
+      setEditingRouteId(null);
+      setJourneyName('');
+      setSelectedJourneyPlaces([]);
+      setListSearch('');
+      setFilter('Trips');
+      setActiveRouteId(existing?.id || data.id);
+      setToastMessage(`Trip "${name}" ${existing ? 'updated' : 'saved'} successfully!`);
     } catch (err: any) {
       setError(err.message || "Failed to save trip.");
     } finally {
@@ -1620,14 +1663,36 @@ const App = () => {
     setSelectedMapId(null);
     setDetailItemId(null);
     if (section !== 'Places' && section !== 'Nearby' && section !== 'Would Return') setAllTrackers(false);
-    if (section !== 'Trips') { setIsJourneyMode(false); setActiveRouteId(null); }
+    if (section !== 'Trips') { setIsJourneyMode(false); setEditingRouteId(null); setActiveRouteId(null); }
     if (windowWidth < 900) setView('list');
     if (section === 'Nearby' && !nearbyLocation) locateNearby();
   };
   const createTrip = () => {
     setFilter('Trips'); setIsJourneyMode(true); setSelectedJourneyPlaces([]); setJourneyName('');
+    setEditingRouteId(null); setJourneyStartDate(''); setJourneyEndDate('');
     setTripType('ordered'); setJourneySortMode('shortest'); setActiveRouteId(null); setJourneyFilter('All'); setListSearch('');
     if (windowWidth < 900 || view === 'map') setView(windowWidth < 900 ? 'list' : 'split');
+  };
+  const editTrip = (route: Route) => {
+    if (!isOwner || isSavingRoute) return;
+    setEditingRouteId(route.id);
+    setJourneyName(route.name);
+    setJourneyStartDate(route.startDate || '');
+    setJourneyEndDate(route.endDate || '');
+    setSelectedJourneyPlaces([...new Set(route.placeIds.map(normalizeJourneyId))]);
+    setTripType(route.tripType);
+    // Default to the saved order, not a fresh optimization.
+    setJourneySortMode('added');
+    setJourneyFilter('All'); setListSearch(''); setActiveRouteId(route.id);
+    setFilter('Trips'); setIsJourneyMode(true);
+    if (windowWidth < 900 || view === 'map') setView(windowWidth < 900 ? 'list' : 'split');
+  };
+  const cancelTripEdit = () => {
+    if (isSavingRoute) return;
+    setIsJourneyMode(false);
+    setEditingRouteId(null);
+    setListSearch('');
+    setError(null);
   };
   const locateItem = (item: { lat: number; lng: number; id?: string; type?: 'place' | 'hotel' }) => {
     if (!Number.isFinite(Number(item.lat)) || !Number.isFinite(Number(item.lng))) return;
@@ -2223,7 +2288,7 @@ const App = () => {
           <header className="tracker-topbar">
             <h1>{activeSection}</h1>
             <div className="topbar-actions">
-              {activeSection !== 'Experiences' && <label className="scope-picker"><MapPin size={16} /><select aria-label="Tracker region" value={browseAllTrackers ? "all" : activeScope} onChange={event => { setAllTrackers(event.target.value === "all"); if (event.target.value !== "all") setActiveScope(event.target.value as ScopeName); setActiveRouteId(null); setMapTarget(null); setHoveredId(null); setSelectedMapId(null); setIsJourneyMode(false); }} >{isPlaceCollection && <option value="all">All trackers</option>}{SCOPE_NAMES.map(scope => <option key={scope} value={scope}>{SCOPE_CONFIG[scope].label}</option>)}</select><ChevronDown size={14} /></label>}
+              {activeSection !== 'Experiences' && <label className="scope-picker"><MapPin size={16} /><select aria-label="Tracker region" disabled={isSavingRoute} value={browseAllTrackers ? "all" : activeScope} onChange={event => { setAllTrackers(event.target.value === "all"); if (event.target.value !== "all") setActiveScope(event.target.value as ScopeName); setActiveRouteId(null); setMapTarget(null); setHoveredId(null); setSelectedMapId(null); setIsJourneyMode(false); setEditingRouteId(null); }} >{isPlaceCollection && <option value="all">All trackers</option>}{SCOPE_NAMES.map(scope => <option key={scope} value={scope}>{SCOPE_CONFIG[scope].label}</option>)}</select><ChevronDown size={14} /></label>}
               <button type="button" className="mobile-utility icon-button" onClick={() => setIsDarkMode(current => !current)} aria-label={isDarkMode ? 'Use light mode' : 'Use dark mode'}>{isDarkMode ? <Sun size={18} /> : <Moon size={18} />}</button>
               {isOwner ? <button type="button" className="mobile-utility icon-button" onClick={() => setShowDebugPanel(true)} aria-label="Settings"><Settings size={18} /></button> : <button type="button" className="mobile-utility icon-button" onClick={() => { setIsAuthError(false); setShowSignIn(true); }} aria-label="Owner sign in"><LogIn size={18} /></button>}
             </div>
@@ -2242,7 +2307,7 @@ const App = () => {
             onLocate={locateNearby} onAdd={() => setShowAddPlace(true)} onReset={resetCollectionFilters}
           /> : <>
           <div className="workspace-toolbar">
-            <label className="collection-search"><Search size={18} /><input type="search" value={listSearch} onChange={event => setListSearch(event.target.value)} aria-label={`Search ${activeSection.toLowerCase()}`} placeholder={`Search ${activeSection.toLowerCase()}…`} />{listSearch && <button type="button" onClick={() => setListSearch('')} aria-label="Clear search"><X size={16} /></button>}</label>
+            <label className="collection-search"><Search size={18} /><input type="search" value={listSearch} onChange={event => setListSearch(event.target.value)} aria-label={isJourneyMode ? "Search trip locations" : `Search ${activeSection.toLowerCase()}`} placeholder={isJourneyMode ? "Search locations…" : `Search ${activeSection.toLowerCase()}…`} />{listSearch && <button type="button" onClick={() => setListSearch('')} aria-label="Clear search"><X size={16} /></button>}</label>
             <div className="toolbar-actions">
               <div className="view-switch" role="group" aria-label="Layout">{[{ id: 'list', icon: List, label: 'List' }, ...(windowWidth >= 900 ? [{ id: 'split', icon: Columns2, label: 'Split' }] : []), { id: 'map', icon: MapIcon, label: 'Map' }].map(({ id, icon: Icon, label }) => <button key={id} type="button" onClick={() => setView(id)} className={view === id || (windowWidth < 900 && view === 'split' && id === 'list') ? 'is-active' : ''} aria-label={`${label} view`} aria-pressed={view === id || (windowWidth < 900 && view === 'split' && id === 'list')}><Icon size={17} /><span>{label}</span></button>)}</div>
               {isOwner && activeSection === 'Diary' && <GeneralPhotoUpload
@@ -2315,16 +2380,27 @@ const App = () => {
               {isJourneyMode && (
                 <div className="trip-builder bg-indigo-600 p-4 rounded-2xl shadow-lg space-y-4 animate-in slide-in-from-top-4 duration-300">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-white font-bold text-sm flex items-center gap-2"><Navigation size={18} /> Creating Trip</h3>
-                    <button type="button" onClick={() => setIsJourneyMode(false)} className="text-white/70 hover:text-white px-2">Cancel</button>
+                    <h3 className="text-white font-bold text-sm flex items-center gap-2"><Navigation size={18} /> {editingRouteId ? 'Editing Trip' : 'Creating Trip'}</h3>
+                    <button type="button" onClick={cancelTripEdit} disabled={isSavingRoute} className="text-white/70 hover:text-white px-2">Cancel</button>
                   </div>
                   <input
                     type="text"
                     value={journeyName}
+                    aria-label="Trip name" disabled={isSavingRoute}
                     onChange={(e) => setJourneyName(e.target.value)}
                     placeholder="Trip name (e.g. Dallas weekend)"
                     className="w-full px-3 py-2.5 bg-white/10 border border-white/20 rounded-xl text-white placeholder:text-white/50 outline-none focus:ring-2 focus:ring-white/30 text-sm"
                   />
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <label className="min-w-0 text-white text-xs font-semibold">Trip date / start
+                      <input type="date" value={journeyStartDate} disabled={isSavingRoute} onChange={event => setJourneyStartDate(event.target.value)} className="block w-full min-w-0 mt-1 px-2 py-2 bg-white/10 border border-white/20 rounded-lg text-white" />
+                    </label>
+                    <label className="min-w-0 text-white text-xs font-semibold">End date (optional)
+                      <input type="date" value={journeyEndDate} min={journeyStartDate || undefined} disabled={isSavingRoute} onChange={event => setJourneyEndDate(event.target.value)} className="block w-full min-w-0 mt-1 px-2 py-2 bg-white/10 border border-white/20 rounded-lg text-white" />
+                    </label>
+                  </div>
+                  <p className="text-xs text-white/70">Leave both blank for an undated trip, or just choose a start date for a single day.</p>
+                  {invalidJourneyDates && <p role="alert" className="text-xs text-white font-bold">Choose a start date and an end date on or after it.</p>}
                   <div className="grid grid-cols-2 gap-1.5 p-1 bg-white/10 rounded-xl">
                     {([
                       { id: 'ordered', label: 'Ordered', description: 'Follow a planned route' },
@@ -2332,7 +2408,7 @@ const App = () => {
                     ] as const).map(option => (
                       <button
                         key={option.id}
-                        onClick={() => setTripType(option.id)}
+                        disabled={isSavingRoute} onClick={() => setTripType(option.id)}
                         className={`p-2 rounded-lg text-left transition-all ${tripType === option.id ? 'bg-white text-indigo-600 shadow-sm' : 'text-white/60 hover:text-white'}`}
                       >
                         <span className="block text-xs font-semibold tracking-wide">{option.label}</span>
@@ -2354,11 +2430,11 @@ const App = () => {
                   {tripType === 'ordered' && <div className="flex gap-1.5 p-1 bg-white/10 rounded-xl">
                     {[
                       { id: 'shortest', label: 'Shortest distance' },
-                      { id: 'added', label: 'Order added' }
+                      { id: 'added', label: 'Manual order' }
                     ].map(option => (
                       <button
                         key={option.id}
-                        onClick={() => setJourneySortMode(option.id as 'shortest' | 'added')}
+                        disabled={isSavingRoute} onClick={() => setJourneySortMode(option.id as 'shortest' | 'added')}
                         className={`flex-1 py-1.5 rounded-lg text-xs font-semibold tracking-wide transition-all ${journeySortMode === option.id ? 'bg-white text-indigo-600 shadow-sm' : 'text-white/60 hover:text-white'}`}
                       >
                         {option.label}
@@ -2367,7 +2443,7 @@ const App = () => {
                   </div>}
                   <div className="space-y-2">
                     <p className="text-white/70 text-xs font-bold tracking-wide">
-                      {tripType === 'unordered' ? 'Any order' : journeySortMode === 'shortest' ? 'Start Point + Shortest Path' : 'Order Added'}: {selectedJourneyPlaces.length} places
+                      {tripType === 'unordered' ? 'Any order' : journeySortMode === 'shortest' ? 'Start Point + Shortest Path' : 'Manual order'}: {selectedJourneyPlaces.length} places
                     </p>
                     {selectedJourneyPlaces.length === 0 && (
                       <div className="bg-white/10 border border-white/15 rounded-xl p-3 text-white">
@@ -2381,32 +2457,34 @@ const App = () => {
                         </p>
                       </div>
                     )}
-                    {currentRoutePoints.length > 0 && (
+                    {selectedJourneyPlaces.length > 0 && (
                       <div className="max-h-40 overflow-y-auto space-y-1.5 pr-1 no-scrollbar">
-                        {currentRoutePoints.map((p, i) => (
-                          <div key={`${p.type}:${p.id}`} className={`flex items-center justify-between p-2 rounded-lg group/item ${tripType === 'ordered' && i === 0 ? 'bg-white text-indigo-700 ring-2 ring-white/40' : 'bg-white/10'}`}>
+                        {getJourneyPathIds(selectedJourneyPlaces).map((id, i, ids) => {
+                          const p = getJourneyItems([id])[0];
+                          return <div key={id} className={`flex items-center justify-between p-2 rounded-lg group/item ${tripType === 'ordered' && i === 0 ? 'bg-white text-indigo-700 ring-2 ring-white/40' : 'bg-white/10'}`}>
                             <div className="flex items-center gap-2 min-w-0">
                               <span className={`text-xs font-semibold w-4 ${tripType === 'ordered' && i === 0 ? 'text-indigo-300' : 'text-white/40'}`}>{tripType === 'ordered' ? i + 1 : '•'}</span>
-                              <span className={`text-xs font-bold truncate ${tripType === 'ordered' && i === 0 ? 'text-indigo-700' : 'text-white'}`}>{p.name}</span>
+                              <span className={`text-xs font-bold truncate ${tripType === 'ordered' && i === 0 ? 'text-indigo-700' : 'text-white'}`>{p?.name || `Unavailable stop (${id})`}</span>
                               {tripType === 'ordered' && i === 0 && <span className="text-xs font-semibold tracking-wide bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full shrink-0">Start</span>}
                             </div>
-                            <button
-                              onClick={() => toggleJourneyPlace(`${p.type}:${p.id}`)}
-                              className={`transition-colors ${tripType === 'ordered' && i === 0 ? 'text-indigo-300 hover:text-indigo-700' : 'text-white/30 hover:text-white'}`}
-                            >
-                              <X size={14} />
-                            </button>
-                          </div>
-                        ))}
+                            <div className={`flex items-center shrink-0 gap-1 ${tripType === 'ordered' && i === 0 ? 'text-indigo-700' : 'text-white'}`}>
+                              {tripType === 'ordered' && journeySortMode === 'added' && <>
+                                <button type="button" disabled={isSavingRoute || i === 0} aria-label={`Move ${p?.name || id} earlier`} onClick={() => moveJourneyPlace(id, -1)} className="p-1.5 disabled:opacity-30"><ChevronDown size={16} className="rotate-180" /></button>
+                                <button type="button" disabled={isSavingRoute || i === ids.length - 1} aria-label={`Move ${p?.name || id} later`} onClick={() => moveJourneyPlace(id, 1)} className="p-1.5 disabled:opacity-30"><ChevronDown size={16} /></button>
+                              </>}
+                              <button type="button" disabled={isSavingRoute} aria-label={`Remove ${p?.name || id}`} onClick={() => toggleJourneyPlace(id)} className="p-1.5 disabled:opacity-30"><X size={16} /></button>
+                            </div>
+                          </div>;
+                        })}
                       </div>
                     )}
                     <div className="flex gap-2 pt-2">
                       <button
                         onClick={saveRoute}
-                        disabled={selectedJourneyPlaces.length === 0 || !journeyName || isSavingRoute}
+                        disabled={selectedJourneyPlaces.length === 0 || !journeyName.trim() || invalidJourneyDates || isSavingRoute}
                         className="flex-1 bg-white text-indigo-600 py-2 rounded-xl font-bold text-xs hover:bg-indigo-50 disabled:opacity-50 transition-all flex items-center justify-center gap-1"
                       >
-                        {isSavingRoute ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Save Trip
+                        {isSavingRoute ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} {editingRouteId ? 'Save changes' : 'Save Trip'}
                       </button>
                     </div>
                   </div>
@@ -2415,7 +2493,7 @@ const App = () => {
                       ? 'Unchecked places stay at the top while you are taking the trip.'
                       : journeySortMode === 'shortest'
                       ? 'Your first selection stays as the start point. The remaining stops are ordered by shortest path.'
-                      : 'Your first selection stays as the start point. The remaining stops stay in the order you added them.'}
+                      : 'Use the arrows to reorder stops manually, including the start point.'}
                   </p>
                 </div>
               )}
@@ -2472,8 +2550,10 @@ const App = () => {
                             <span className="bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full">{route.tripType}</span>
                             <span className={`px-1.5 py-0.5 rounded-full ${route.status === 'completed' ? 'bg-green-100 text-green-700' : route.status === 'active' ? 'bg-indigo-100 text-indigo-700' : 'bg-amber-100 text-amber-700'}`}>{route.status}</span>
                           </div>
+                          {route.startDate && <p className="text-xs font-semibold text-slate-600 flex items-center gap-1"><Calendar size={14} />{formatEventDateRange(route.startDate, route.endDate)}</p>}
                         </div>
                         <div className="flex items-center gap-2">
+                          {isOwner && <button type="button" onClick={event => { event.stopPropagation(); editTrip(route); }} disabled={isSavingRoute} title="Edit Trip" aria-label={`Edit trip ${route.name}`} className="p-1.5 text-indigo-600 hover:bg-indigo-100 rounded-lg transition-all disabled:opacity-50"><Pencil size={18} /></button>}
                           {isOwner && route.status === 'planned' && <button
                             onClick={(e) => { e.stopPropagation(); startTrip(route); setActiveRouteId(route.id); }}
                             className="px-2 py-1.5 text-xs font-semibold tracking-wide text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-all"
