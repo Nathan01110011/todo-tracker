@@ -614,7 +614,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const savedVisitDate = String(locationRow.get('date') || '').trim() || visitDate;
 
         const existingPhotoRows = await photosSheet.getRows();
-        if (!existingPhotoRows.some(row => row.get('locationId') === id && row.get('url') === photoUrl)) {
+        const existingPhoto = existingPhotoRows.find(row => row.get('locationId') === id && row.get('url') === photoUrl);
+        if (!existingPhoto) {
           await photosSheet.addRow({
             locationId: id,
             url: photoUrl,
@@ -666,7 +667,36 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           }
         }
 
-        return res.status(200).json({ success: true, visit: { status: 'Visited', date: savedVisitDate }, diaryEntry, diaryWarning });
+        // Trip completion must be based on the actual capture date, never the upload
+        // date or the place's earliest saved visit. An undated photo is insufficient.
+        const tripUpdates: Array<{ id: string; completedPlaceIds: string[] }> = [];
+        let tripWarning = '';
+        const tripCapture = String(existingPhoto ? existingPhoto.get('capturedAt') || '' : capturedAt || '').match(/^(\d{4})[:-](\d{2})[:-](\d{2})(?:[ T]|$)/);
+        const tripDate = tripCapture ? tripCapture.slice(1, 4).join('-') : '';
+        if (routesSheet && isValidDate(tripDate) && tripDate <= today) {
+          try {
+            const normalize = (value: string) => value.includes(':') ? value : 'place:' + value;
+            const target = type + ':' + id;
+            for (const row of await routesSheet.getRows()) {
+              const start = String(row.get('startDate') || '').trim();
+              const end = String(row.get('endDate') || '').trim() || start;
+              if (!isValidDate(start) || !isValidDate(end) || tripDate < start || tripDate > end) continue;
+              const stops = String(row.get('placeIds') || '').split(',').filter(Boolean);
+              const stop = stops.find(value => normalize(value) === target);
+              if (!stop) continue;
+              const completed = String(row.get('completedPlaceIds') || '').split(',').filter(Boolean);
+              if (completed.some(value => normalize(value) === target)) continue;
+              completed.push(stop);
+              row.set('completedPlaceIds', completed.join(','));
+              await row.save();
+              tripUpdates.push({ id: String(row.get('id')), completedPlaceIds: completed });
+            }
+          } catch (error) {
+            console.error('Photo saved, but trip completion sync failed:', error);
+            tripWarning = 'Photo saved, but some trip stops could not be checked off.';
+          }
+        }
+        return res.status(200).json({ success: true, visit: { status: 'Visited', date: savedVisitDate }, diaryEntry, diaryWarning, tripUpdates, tripWarning });
       }
 
       if (type === 'diary') {
