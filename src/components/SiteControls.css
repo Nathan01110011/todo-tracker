@@ -38,3 +38,5 @@
 .tracker-app input[type=checkbox]:checked::after{content:'';width:10px;height:6px;border-left:2px solid currentColor;border-bottom:2px solid currentColor;transform:rotate(-45deg) translateY(-1px)}
 .tracker-app input[type=checkbox]:disabled{opacity:.5;cursor:default}
 @media(max-width:600px){.site-control-popover{padding:8px}.site-calendar-grid button{min-height:38px}.scope-picker .site-control{max-width:130px}.site-control-trigger{font-size:.85rem}}
+
+.site-control-spaced{margin-top:4px}
