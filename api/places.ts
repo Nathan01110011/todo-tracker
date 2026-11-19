@@ -73,12 +73,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     
     let routesSheet = doc.sheetsByTitle['Routes'];
     if (!routesSheet && req.method === 'POST' && req.body.type === 'route') {
-      routesSheet = await doc.addSheet({ title: 'Routes', headerValues: ['id', 'name', 'placeIds', 'scope', 'tripType', 'completedPlaceIds', 'status'] });
+      routesSheet = await doc.addSheet({ title: 'Routes', headerValues: ['id', 'name', 'placeIds', 'scope', 'tripType', 'completedPlaceIds', 'status', 'startDate', 'endDate'] });
     }
 
     if (routesSheet && isOwner) {
       await routesSheet.loadHeaderRow();
-      const requiredRouteColumns = ['tripType', 'completedPlaceIds', 'status'];
+      const requiredRouteColumns = ['tripType', 'completedPlaceIds', 'status', 'startDate', 'endDate'];
       const missingRouteColumns = requiredRouteColumns.filter(column => !routesSheet.headerValues.includes(column));
       if (missingRouteColumns.length > 0) {
         await routesSheet.setHeaderRow([...routesSheet.headerValues, ...missingRouteColumns]);
@@ -206,6 +206,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         tripType: row.get('tripType') === 'unordered' ? 'unordered' : 'ordered',
         completedPlaceIds: (row.get('completedPlaceIds') || '').split(',').filter(Boolean),
         status: ['active', 'completed'].includes(row.get('status')) ? row.get('status') : 'planned',
+        startDate: routesSheet?.headerValues.includes('startDate') ? row.get('startDate') || '' : '',
+        endDate: routesSheet?.headerValues.includes('endDate') ? row.get('endDate') || '' : '',
       }));
 
       const diaryEntries = (diaryRows || []).map(row => ({
@@ -746,6 +748,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       if (type === 'route') {
         if (!routesSheet) return res.status(404).json({ error: 'Routes sheet not found' });
+        const { startDate, endDate } = req.body;
+        const validDate = (value: unknown): value is string => {
+          if (value === '') return true;
+          if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+          const parsed = new Date(value + 'T00:00:00Z');
+          return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+        };
+        const validRange = (start: unknown, end: unknown) =>
+          validDate(start) && validDate(end) && (!end || (!!start && end >= start));
         
         if (id) {
           const rows = await routesSheet.getRows();
@@ -754,6 +765,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             if (action === 'delete') {
               await row.delete();
               return res.status(200).json({ success: true });
+            }
+            if (startDate !== undefined || endDate !== undefined) {
+              const nextStart = startDate === undefined ? row.get('startDate') || '' : startDate;
+              const nextEnd = endDate === undefined ? row.get('endDate') || '' : endDate;
+              if (!validRange(nextStart, nextEnd)) return res.status(400).json({ error: 'Enter a valid trip date or date range.' });
+              row.set('startDate', nextStart);
+              row.set('endDate', nextEnd);
             }
             if (name !== undefined) row.set('name', name);
             if (placeIds !== undefined) row.set('placeIds', (placeIds || []).join(','));
@@ -768,6 +786,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
 
         const newId = Math.random().toString(36).substr(2, 9);
+        if (!validRange(startDate === undefined ? '' : startDate, endDate === undefined ? '' : endDate)) return res.status(400).json({ error: 'Enter a valid trip date or date range.' });
         await routesSheet.addRow({
           id: newId,
           name: name || 'New Trip',
@@ -775,7 +794,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           scope: scope || 'Austin',
           tripType: tripType === 'unordered' ? 'unordered' : 'ordered',
           completedPlaceIds: '',
-          status: 'planned'
+          status: 'planned',
+          startDate: startDate || '',
+          endDate: endDate || ''
         });
         return res.status(200).json({ success: true, id: newId });
       }

@@ -269,3 +269,34 @@ test('Landmarks are ordinary saved places with editable category, visit dates an
   const finalRead = await request('GET');
   assert.equal(finalRead.data.places[0].category, 'Activities');
 });
+
+
+test('trips can be edited in place with optional dates and existing completion state', async () => {
+  sharedDoc.sheetsByTitle = {};
+  const owner = 'test-owner';
+  const sheet = await sharedDoc.addSheet({ title:'Routes', headerValues:['id','name','placeIds','scope','tripType','completedPlaceIds','status'] });
+  await sheet.addRow({ id:'chicago', name:'Chicago', placeIds:'place:a,place:b', scope:'USA', tripType:'ordered', completedPlaceIds:'place:a', status:'active' });
+  const old = await request('GET');
+  assert.equal(old.status,200);
+  assert.equal(old.data.routes[0].startDate,'');
+  assert.equal(old.data.routes[0].endDate,'');
+  const edit = { type:'route', action:'update', id:'chicago', name:'Chicago break', placeIds:['place:a','hotel:c'], tripType:'unordered', completedPlaceIds:['place:a'], startDate:'2026-11-22', endDate:'2026-11-26' };
+  assert.equal((await request('POST',edit)).status,401);
+  assert.equal((await request('POST',edit,owner)).status,200);
+  const read = await request('GET');
+  assert.equal(read.data.routes.length,1);
+  assert.deepEqual(read.data.routes[0],{ id:'chicago', name:'Chicago break', placeIds:['place:a','hotel:c'], scope:'USA', tripType:'unordered', completedPlaceIds:['place:a'], status:'active', startDate:'2026-11-22', endDate:'2026-11-26' });
+  assert.equal((await request('POST',{ ...edit, endDate:'2026-11-21' },owner)).status,400);
+  assert.equal((await request('POST',{ ...edit, startDate:'2026-02-30' },owner)).status,400);
+  assert.equal((await request('GET')).data.routes[0].endDate,'2026-11-26');
+  assert.equal((await request('POST',{ type:'route', id:'chicago', action:'update', endDate:'' },owner)).status,200);
+  assert.equal((await request('GET')).data.routes[0].endDate,'');
+  assert.equal((await request('POST',{ type:'route', id:'chicago', action:'update', startDate:'' },owner)).status,200);
+  assert.equal((await request('GET')).data.routes[0].startDate,'');
+  const created = await request('POST',{ type:'route', name:'Day trip', placeIds:['place:z'], scope:'USA', startDate:'2026-12-01' },owner);
+  assert.equal(created.status,200);
+  const day = (await request('GET')).data.routes.find((route: any) => route.id === created.data.id);
+  assert.equal(day.startDate,'2026-12-01');
+  assert.equal(day.endDate,'');
+  assert.equal(day.status,'planned');
+});
