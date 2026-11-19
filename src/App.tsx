@@ -2464,7 +2464,7 @@ const App = () => {
                           return <div key={id} className={`flex items-center justify-between p-2 rounded-lg group/item ${tripType === 'ordered' && i === 0 ? 'bg-white text-indigo-700 ring-2 ring-white/40' : 'bg-white/10'}`}>
                             <div className="flex items-center gap-2 min-w-0">
                               <span className={`text-xs font-semibold w-4 ${tripType === 'ordered' && i === 0 ? 'text-indigo-300' : 'text-white/40'}`}>{tripType === 'ordered' ? i + 1 : '•'}</span>
-                              <span className={`text-xs font-bold truncate ${tripType === 'ordered' && i === 0 ? 'text-indigo-700' : 'text-white'}`>{p?.name || `Unavailable stop (${id})`}</span>
+                              <span className={`text-xs font-bold truncate ${tripType === 'ordered' && i === 0 ? 'text-indigo-700' : 'text-white'}`}>{p?.name || `Unavailable stop (${id})`}</span>
                               {tripType === 'ordered' && i === 0 && <span className="text-xs font-semibold tracking-wide bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full shrink-0">Start</span>}
                             </div>
                             <div className={`flex items-center shrink-0 gap-1 ${tripType === 'ordered' && i === 0 ? 'text-indigo-700' : 'text-white'}`}>
