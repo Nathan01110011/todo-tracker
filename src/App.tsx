@@ -1,4 +1,5 @@
 import { SiteSelect, SiteInput } from './components/SiteControls';
+import { readPhotoExif, cloudinaryPhotoMetadata } from './lib/photoMetadata';
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline } from 'react-leaflet';
@@ -620,6 +621,7 @@ const PhotoModal = ({ item, isOpen, onClose, onUpload, onCommentSave, onDeletePh
       if (!sigRes.ok) throw new Error(sigData.error || 'Failed to get signature');
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
+        const localMetadata = await readPhotoExif(file);
         if (files.length > 1) setUploadStatus(`Uploading ${i + 1}/${files.length}...`);
         const formData = new FormData();
         formData.append('file', file);
@@ -632,8 +634,8 @@ const PhotoModal = ({ item, isOpen, onClose, onUpload, onCommentSave, onDeletePh
         const data = await res.json();
         if (!res.ok) throw new Error(data.error?.message || 'Cloudinary upload failed');
         if (data.secure_url) {
-          const metadata = data.media_metadata || data.image_metadata || {};
-          const capturedAt = metadata.DateTimeOriginal || metadata.DateTimeDigitized || metadata.CreateDate || metadata.DateTime || '';
+          const remoteMetadata = cloudinaryPhotoMetadata(data.media_metadata || data.image_metadata);
+          const capturedAt = localMetadata.capturedAt || remoteMetadata.capturedAt || '';
           await onUpload({
             url: data.secure_url,
             comment: '',
