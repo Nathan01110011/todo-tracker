@@ -1,0 +1,42 @@
+/* Shared Atlas / Signal in-app controls, including popovers rendered outside scroll panels. */
+.site-control{display:inline-flex;min-width:0;max-width:100%;width:100%;vertical-align:middle}
+.site-control-trigger{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;min-width:0;min-height:40px;border:1px solid var(--border);border-radius:9px;padding:8px 11px;background:var(--surface);color:var(--text);font-size:.875rem;font-weight:500;text-align:left;line-height:1.35}
+.site-control-trigger>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.site-control-trigger>svg{flex-shrink:0;color:var(--muted)}
+.site-control-trigger:hover:not(:disabled),.site-control-trigger[aria-expanded=true]{border-color:var(--accent-border);background:var(--surface-soft)}
+.scope-picker .site-control{width:auto;min-width:90px;max-width:190px}
+.scope-picker .site-control-trigger{background:transparent;border:0;padding:6px 0;font-weight:600}
+.scope-picker .site-control-trigger>svg{color:var(--muted)}
+.browse-category .site-control{min-width:130px}
+.trip-builder .site-control-trigger{background:var(--surface);color:var(--text);border-color:var(--border)}
+.site-control-popover{position:fixed;z-index:10000;overflow:auto;overscroll-behavior:contain;background:var(--surface-raised);border:1px solid var(--border-strong);border-radius:12px;box-shadow:0 14px 40px rgb(0 0 0 / .24);padding:8px;color:var(--text);font-family:Inter,ui-sans-serif,system-ui,sans-serif;font-size:14px;line-height:1.4}
+.site-control-popover button{border:0;border-radius:7px;padding:8px;background:transparent;color:var(--text);min-height:36px;font:inherit;cursor:pointer}
+.site-control-popover button:hover:not(:disabled){background:var(--surface-soft)}
+.site-control-popover button.is-selected{background:var(--accent-soft);color:var(--accent);font-weight:650}
+.site-control-popover button:disabled{opacity:.35;cursor:default}
+.site-options input{width:100%;padding:9px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);margin-bottom:5px}
+.site-options [role=group]{display:grid;gap:2px}
+.site-options button{display:flex;justify-content:space-between;align-items:center;gap:8px;text-align:left;width:100%;overflow-wrap:anywhere}
+.site-calendar-head{display:flex;justify-content:space-between;align-items:center;gap:4px;margin-bottom:5px}
+.site-calendar-head button{display:flex;align-items:center;justify-content:center;gap:5px}
+.site-calendar-month{font-weight:700!important}
+.site-calendar-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:2px}
+.site-calendar-week{text-align:center;font-size:11px;color:var(--muted);padding:3px 0}
+.site-calendar-grid button{padding:4px 0;min-height:36px;font-variant-numeric:tabular-nums}
+.site-calendar-grid button.is-outside{color:var(--faint)}
+.site-calendar-grid button.is-today{box-shadow:inset 0 0 0 1px var(--accent-border)}
+.site-calendar-grid button.is-selected{background:var(--accent-solid);color:var(--on-accent)}
+.site-month-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}
+.site-calendar-footer{display:flex;justify-content:space-between;border-top:1px solid var(--border);margin-top:7px;padding-top:5px}
+.site-calendar-footer button{color:var(--accent);font-weight:600}
+.site-time-columns{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.site-time-columns strong{display:block;text-align:center;font-size:12px;color:var(--muted);padding:5px}
+.site-time-columns>div>div{max-height:200px;overflow:auto;display:grid;grid-template-columns:repeat(2,1fr);gap:3px}
+.site-time-save{background:var(--accent-solid)!important;color:var(--on-accent)!important}
+.tracker-app input[type=checkbox]{appearance:none;display:inline-grid;place-content:center;flex-shrink:0;width:20px;height:20px;margin:0;border:1px solid var(--border-strong);border-radius:5px;background:var(--surface);color:var(--on-accent);cursor:pointer;vertical-align:middle}
+.tracker-app input[type=checkbox]:checked{background:var(--accent-solid);border-color:var(--accent-solid)}
+.tracker-app input[type=checkbox]:checked::after{content:'';width:10px;height:6px;border-left:2px solid currentColor;border-bottom:2px solid currentColor;transform:rotate(-45deg) translateY(-1px)}
+.tracker-app input[type=checkbox]:disabled{opacity:.5;cursor:default}
+@media(max-width:600px){.site-control-popover{padding:8px}.site-calendar-grid button{min-height:38px}.scope-picker .site-control{max-width:130px}.site-control-trigger{font-size:.85rem}}
+
+.site-control-spaced{margin-top:4px}
