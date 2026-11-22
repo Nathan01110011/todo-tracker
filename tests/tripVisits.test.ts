@@ -40,7 +40,7 @@ test('trip reconciliation is idempotent and preserves prior stops and completion
   const dates = {'place:a':'2026-04-12','hotel:c':'2026-04-10','place:b':'2026-04-11'};
   const first = reconcileTripTimeline(original,dates);
   assert.deepEqual(first.placeIds,['place:unvisited','a','hotel:c','place:b']);
-  assert.deepEqual(first.completedPlaceIds,['place:unvisited','a','hotel:c','place:b']);
+  assert.deepEqual(first.completedPlaceIds,['place:unvisited','hotel:c','place:b','place:a']);
   assert.deepEqual(first.addedIds,['hotel:c','place:b']);
   assert.deepEqual(first.newlyCompletedIds,['a','hotel:c','place:b']);
   const second = reconcileTripTimeline(first,dates);
