@@ -1699,10 +1699,11 @@ const App = () => {
 
   const toggleTripPlace = async (route: Route, compositeId: string) => {
     if (!isOwner || route.status !== 'active') return;
-    const isComplete = route.completedPlaceIds.includes(compositeId);
+    const normalizedId = normalizeTripStop(compositeId);
+    const isComplete = route.completedPlaceIds.some(id => normalizeTripStop(id) === normalizedId);
     const completedPlaceIds = isComplete
-      ? route.completedPlaceIds.filter(id => id !== compositeId)
-      : [...route.completedPlaceIds, compositeId];
+      ? route.completedPlaceIds.filter(id => normalizeTripStop(id) !== normalizedId)
+      : [...route.completedPlaceIds, normalizedId];
     const [type, id] = compositeId.includes(':') ? compositeId.split(':') : ['place', compositeId];
     if (type === 'place' || type === 'hotel') {
       await updatePlace(id, { status: isComplete ? 'To Do' : 'Visited' }, type);
@@ -1716,7 +1717,7 @@ const App = () => {
       message: `Complete trip "${route.name}"? Unchecked locations will remain in To Do.`,
       onConfirm: async () => {
         const uncheckedUpdates = route.placeIds
-          .filter(compositeId => !route.completedPlaceIds.includes(compositeId))
+          .filter(compositeId => !route.completedPlaceIds.some(id => normalizeTripStop(id) === normalizeTripStop(compositeId)))
           .map(compositeId => {
             const [type, id] = compositeId.includes(':') ? compositeId.split(':') : ['place', compositeId];
             if (type !== 'place' && type !== 'hotel') return Promise.resolve();
@@ -1819,12 +1820,13 @@ const App = () => {
       ids = getJourneyPathIds(selectedJourneyPlaces);
     } else if (activeRouteId && filter === 'Trips') {
       const route = routes.find(r => r.id === activeRouteId);
-      if (route) ids = route.placeIds;
+      if (route) ids = orderTripStops(route.placeIds, route.completedPlaceIds,
+        tripVisitDates(route, tripVisitLocations, diaryEntries, format(new Date(), 'yyyy-MM-dd')));
     }
     if (ids.length === 0) return [];
 
     return getJourneyItems(ids);
-  }, [isJourneyMode, selectedJourneyPlaces, activeRouteId, routes, places, hotels, markers, filter, journeySortMode, tripType]);
+  }, [isJourneyMode, selectedJourneyPlaces, activeRouteId, routes, places, hotels, markers, diaryEntries, tripVisitLocations, filter, journeySortMode, tripType]);
 
   const showRouteLine = isJourneyMode
     ? tripType === 'ordered'
