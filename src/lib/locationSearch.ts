@@ -108,6 +108,7 @@ export async function searchLocations(
 ): Promise<NominatimLocation[]> {
   const response = await request(locationSearchUrl(scope, query, nearby));
   if (!response.ok) throw new Error('Location search failed');
-  const results = filterLocationResults(await response.json(), scope);
-  return validSearchPosition(nearby) ? sortLocationsByDistance(results, nearby) : results;
+  // Keep the source order intact. The Add Place UI applies distance ranking
+  // only while location sharing is enabled, so disabling it restores the list.
+  return filterLocationResults(await response.json(), scope);
 }
