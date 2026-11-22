@@ -608,6 +608,7 @@ const PhotoModal = ({ item, isOpen, onClose, onUpload, onCommentSave, onDeletePh
   const fileInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const [uploadNotice, setUploadNotice] = useState('');
+  const [useStandardPhotoPicker, setUseStandardPhotoPicker] = useState(false);
   const photos = useMemo(() => photoDetailsFor(item), [item.photos, item.photoDetails]);
   const photoUrls = useMemo(() => photos.map(photo => photo.url), [photos]);
   const missingCaptureDateCount = useMemo(() => photos.filter(photo => !photo.capturedAt).length, [photos]);
@@ -672,11 +673,13 @@ const PhotoModal = ({ item, isOpen, onClose, onUpload, onCommentSave, onDeletePh
   };
   const chooseOriginalPhotos = async () => {
     if (uploadStatus) return;
+    if (useStandardPhotoPicker) { fileInputRef.current?.click(); return; }
     try {
       const files = await selectOriginalPhotos(fileInputRef.current);
       if (files) await uploadSelectedPhotos(files);
     } catch (err: any) {
-      onError('Could not open Files: ' + (err?.message || 'file access unavailable.'));
+      setUseStandardPhotoPicker(true);
+      onError('Files picker unavailable. Tap Upload original photos again to open the standard file browser.');
     }
   };
   if (!isOpen) return null;
