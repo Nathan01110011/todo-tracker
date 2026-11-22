@@ -6,31 +6,82 @@ export interface EmbeddedPhotoMetadata {
 
 const emptyMetadata = (): EmbeddedPhotoMetadata => ({ capturedAt: '', lat: null, lng: null });
 
-// Read JPEG EXIF directly from the selected file. Upload services and browsers
-// do not reliably expose GPS EXIF in their upload responses.
-export async function readPhotoExif(file: File): Promise<EmbeddedPhotoMetadata> {
-  if (!/jpe?g/i.test(file.type) && !/\.jpe?g$/i.test(file.name)) return emptyMetadata();
-  try {
-    const view = new DataView(await file.slice(0, 512 * 1024).arrayBuffer());
-    if (view.byteLength < 4 || view.getUint16(0) !== 0xffd8) return emptyMetadata();
+// Parse metadata locally before uploading, so a service-side conversion does
+// not become the source of truth. JPEG, PNG eXIf, WebP EXIF and TIFF all carry
+// the same TIFF metadata block; HEIC/AVIF still use Cloudinary as a fallback.
+// This cannot reverse Android's privacy redaction of files delivered to Chrome.
+const MAX_EXIF_BYTES = 1024 * 1024;
 
-    let cursor = 2;
-    while (cursor + 4 < view.byteLength) {
-      if (view.getUint8(cursor) !== 0xff) break;
-      const marker = view.getUint8(cursor + 1);
-      if (marker === 0xda || marker === 0xd9) break;
-      if (marker >= 0xd0 && marker <= 0xd8) { cursor += 2; continue; }
-      const length = view.getUint16(cursor + 2);
-      if (length < 2 || cursor + 2 + length > view.byteLength) break;
-      const start = cursor + 4;
-      if (marker === 0xe1 && length >= 8 &&
-          [0x45, 0x78, 0x69, 0x66, 0, 0].every((byte, i) => view.getUint8(start + i) === byte)) {
-        return readExifTiff(view, start + 6);
+const readSlice = async (file: File, start: number, length: number): Promise<DataView> =>
+  new DataView(await file.slice(start, start + length).arrayBuffer());
+
+const asciiAt = (view: DataView, offset: number, count: number): string =>
+  Array.from({ length: count }, (_, i) => String.fromCharCode(view.getUint8(offset + i))).join('');
+
+function fromExifBlock(view: DataView): EmbeddedPhotoMetadata {
+  if (view.byteLength >= 6 && asciiAt(view, 0, 6) === 'Exif\u0000\u0000') return readExifTiff(view, 6);
+  return readExifTiff(view, 0);
+}
+
+export async function readPhotoExif(file: File): Promise<EmbeddedPhotoMetadata> {
+  try {
+    const head = await readSlice(file, 0, 16);
+    if (head.byteLength < 8) return emptyMetadata();
+
+    if (head.getUint16(0) === 0xffd8) {
+      const view = await readSlice(file, 0, MAX_EXIF_BYTES);
+      let cursor = 2;
+      while (cursor + 4 <= view.byteLength) {
+        if (view.getUint8(cursor) !== 0xff) break;
+        const marker = view.getUint8(cursor + 1);
+        if (marker === 0xda || marker === 0xd9) break;
+        if (marker >= 0xd0 && marker <= 0xd8) { cursor += 2; continue; }
+        const length = view.getUint16(cursor + 2);
+        if (length < 2 || cursor + 2 + length > view.byteLength) break;
+        const start = cursor + 4;
+        if (marker === 0xe1 && length >= 8 &&
+            asciiAt(view, start, 6) === 'Exif\u0000\u0000') {
+          return readExifTiff(view, start + 6);
+        }
+        cursor += length + 2;
       }
-      cursor += length + 2;
+    } else if (head.getUint32(0) === 0x89504e47 && head.getUint32(4) === 0x0d0a1a0a) {
+      // PNG: eXIf chunks can occur after huge IDAT chunks, so seek over image
+      // data instead of reading the whole photo into browser memory.
+      let offset = 8;
+      for (let i = 0; i < 8192 && offset + 12 <= file.size; i++) {
+        const header = await readSlice(file, offset, 8);
+        if (header.byteLength < 8) break;
+        const size = header.getUint32(0, false);
+        const kind = asciiAt(header, 4, 4);
+        const next = offset + 12 + size;
+        if (!Number.isSafeInteger(next) || next > file.size) break;
+        if (kind === 'eXIf' && size > 0 && size <= MAX_EXIF_BYTES) {
+          return fromExifBlock(await readSlice(file, offset + 8, size));
+        }
+        if (kind === 'IEND') break;
+        offset = next;
+      }
+    } else if (asciiAt(head, 0, 4) === 'RIFF' && asciiAt(head, 8, 4) === 'WEBP') {
+      // WebP EXIF often follows image data, and chunks use little-endian sizes.
+      let offset = 12;
+      for (let i = 0; i < 8192 && offset + 8 <= file.size; i++) {
+        const header = await readSlice(file, offset, 8);
+        if (header.byteLength < 8) break;
+        const kind = asciiAt(header, 0, 4);
+        const size = header.getUint32(4, true);
+        const next = offset + 8 + size + (size % 2);
+        if (!Number.isSafeInteger(next) || next > file.size) break;
+        if (kind === 'EXIF' && size > 0 && size <= MAX_EXIF_BYTES) {
+          return fromExifBlock(await readSlice(file, offset + 8, size));
+        }
+        offset = next;
+      }
+    } else if (head.getUint16(0) === 0x4949 || head.getUint16(0) === 0x4d4d) {
+      return fromExifBlock(await readSlice(file, 0, MAX_EXIF_BYTES));
     }
   } catch {
-    // Non-EXIF images should still be uploadable.
+    // Invalid/unsupported EXIF must not block an otherwise valid image upload.
   }
   return emptyMetadata();
 }
@@ -98,7 +149,7 @@ function readExifTiff(view: DataView, start: number): EmbeddedPhotoMetadata {
   const gps = fieldsAt(pointer(root.get(0x8825)));
   const lat = dms(gps.get(0x0002));
   const lng = dms(gps.get(0x0004));
-  if (lat !== null && lng !== null && lat <= 90 && lng <= 180) {
+  if (lat !== null && lng !== null && lat <= 90 && lng <= 180 && !(lat === 0 && lng === 0)) {
     result.lat = /^s/i.test(str(gps.get(0x0001))) ? -lat : lat;
     result.lng = /^w/i.test(str(gps.get(0x0003))) ? -lng : lng;
   }

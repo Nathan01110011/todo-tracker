@@ -1,5 +1,6 @@
 import { SiteSelect, SiteInput } from './components/SiteControls';
 import { readPhotoExif, cloudinaryPhotoMetadata } from './lib/photoMetadata';
+import { isImageFile, selectOriginalPhotos } from './lib/photoPicker';
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline } from 'react-leaflet';
@@ -605,6 +606,9 @@ const PhotoModal = ({ item, isOpen, onClose, onUpload, onCommentSave, onDeletePh
   const [photoCheckResults, setPhotoCheckResults] = useState<Record<string, string>>({});
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
+  const [uploadNotice, setUploadNotice] = useState('');
+  const [useStandardPhotoPicker, setUseStandardPhotoPicker] = useState(false);
   const photos = useMemo(() => photoDetailsFor(item), [item.photos, item.photoDetails]);
   const photoUrls = useMemo(() => photos.map(photo => photo.url), [photos]);
   const missingCaptureDateCount = useMemo(() => photos.filter(photo => !photo.capturedAt).length, [photos]);
@@ -612,10 +616,16 @@ const PhotoModal = ({ item, isOpen, onClose, onUpload, onCommentSave, onDeletePh
   useEffect(() => {
     setCommentDrafts(Object.fromEntries(photos.map(photo => [photo.url, photo.comment])));
   }, [photos]);
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
+  const uploadSelectedPhotos = async (files: File[]) => {
     if (files.length === 0 || !appPassword) return;
+    setUploadNotice('');
+    if (files.some(file => !isImageFile(file))) {
+      onError('Choose normal photo files, not ZIPs or other documents.');
+      return;
+    }
     setUploadStatus(`Uploading ${files.length} photo${files.length > 1 ? 's' : ''}...`);
+    let gpsCount = 0;
+    let cameraDateCount = 0;
     try {
       const sigRes = await fetch('/api/photos', { headers: { 'Authorization': appPassword } });
       const sigData = await sigRes.json();
@@ -637,6 +647,8 @@ const PhotoModal = ({ item, isOpen, onClose, onUpload, onCommentSave, onDeletePh
         if (data.secure_url) {
           const remoteMetadata = cloudinaryPhotoMetadata(data.media_metadata || data.image_metadata);
           const capturedAt = localMetadata.capturedAt || remoteMetadata.capturedAt || '';
+          if ((localMetadata.lat !== null && localMetadata.lng !== null) || (remoteMetadata.lat !== null && remoteMetadata.lng !== null)) gpsCount++;
+          if (capturedAt) cameraDateCount++;
           await onUpload({
             url: data.secure_url,
             comment: '',
@@ -645,12 +657,29 @@ const PhotoModal = ({ item, isOpen, onClose, onUpload, onCommentSave, onDeletePh
           });
         }
       }
+      setUploadNotice(`${files.length} photo${files.length === 1 ? '' : 's'} uploaded · ${cameraDateCount} with camera timestamp · ${gpsCount} with embedded GPS. The saved place already has its own map location.`);
     } catch (err: any) {
       console.error("Secure upload process failed:", err);
       onError(`Upload failed: ${err.message}`);
     } finally {
       setUploadStatus(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []);
+    event.target.value = '';
+    await uploadSelectedPhotos(files);
+  };
+  const chooseOriginalPhotos = async () => {
+    if (uploadStatus) return;
+    if (useStandardPhotoPicker) { fileInputRef.current?.click(); return; }
+    try {
+      const files = await selectOriginalPhotos(fileInputRef.current);
+      if (files) await uploadSelectedPhotos(files);
+    } catch (err: any) {
+      setUseStandardPhotoPicker(true);
+      onError('Files picker unavailable. Tap Upload original photos again to open the standard file browser.');
     }
   };
   if (!isOpen) return null;
@@ -667,7 +696,7 @@ const PhotoModal = ({ item, isOpen, onClose, onUpload, onCommentSave, onDeletePh
               <button
                 type="button"
                 disabled={!!uploadStatus}
-                onClick={() => fileInputRef.current?.click()}
+                onClick={chooseOriginalPhotos}
                 className="w-full h-64 border-2 border-dashed border-slate-200 rounded-3xl flex flex-col items-center justify-center gap-4 text-slate-400 bg-slate-50/50 hover:border-indigo-300 hover:bg-indigo-50/40 hover:text-indigo-500 active:scale-[0.99] transition-all disabled:opacity-50"
               >
                 {uploadStatus ? <Loader2 size={48} strokeWidth={1.5} className="animate-spin" /> : <Upload size={48} strokeWidth={1.5} />}
@@ -761,10 +790,14 @@ const PhotoModal = ({ item, isOpen, onClose, onUpload, onCommentSave, onDeletePh
         </div>
         {appPassword && (
           <div className="p-4 sm:p-6 border-t bg-slate-50 flex flex-col gap-3 shrink-0">
-            <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/*" multiple className="hidden" />
-            <button disabled={!!uploadStatus} onClick={() => fileInputRef.current?.click()} className="w-full bg-indigo-600 text-white py-3 rounded-2xl font-bold hover:bg-indigo-700 active:scale-[0.98] transition-all flex items-center justify-center gap-3 disabled:opacity-50 shadow-md">
-              {uploadStatus ? <Loader2 size={20} className="animate-spin" /> : <Upload size={20} />}{uploadStatus || 'Upload New Photos'}
+            <input type="file" ref={fileInputRef} onChange={handleFileChange} multiple className="hidden" aria-label="Choose original photo files" />
+            <input type="file" ref={galleryInputRef} onChange={handleFileChange} accept="image/*" multiple className="hidden" aria-label="Choose photos from gallery" />
+            <button type="button" disabled={!!uploadStatus} onClick={chooseOriginalPhotos} className="w-full bg-indigo-600 text-white py-3 rounded-2xl font-bold hover:bg-indigo-700 active:scale-[0.98] transition-all flex items-center justify-center gap-3 disabled:opacity-50 shadow-md">
+              {uploadStatus ? <Loader2 size={20} className="animate-spin" /> : <Upload size={20} />}{uploadStatus || 'Upload original photos (Files)'}
             </button>
+            <button type="button" disabled={!!uploadStatus} onClick={() => galleryInputRef.current?.click()} className="text-xs font-semibold text-indigo-600 hover:underline">Choose from gallery instead (may remove GPS)</button>
+            <p className="text-xs text-slate-500 text-center">Choose ordinary JPEG, PNG or HEIC files directly — no ZIP. Saved destinations already have map coordinates; photo dates are used for diary and trip matching.</p>
+            {uploadNotice && <p role="status" className="text-xs font-semibold text-slate-600 text-center">{uploadNotice}</p>}
             {hasMissingCaptureDates && (
               <>
                 <div className="text-center text-xs font-bold text-amber-700">
@@ -2419,6 +2452,7 @@ const App = () => {
                 password={appPassword}
                 onUploaded={entry => setDiaryEntries(current => current.some(item => item.id === entry.id) ? current : [entry, ...current])}
                 onMessage={setToastMessage}
+                 onNeedsLocation={entry => setPhotoLocationEntry(entry)}
               />}
               {isOwner && activeSection !== 'Pins' && !isJourneyMode && <button type="button" className="primary-button collection-add" onClick={() => { if (activeSection === 'Trips') createTrip(); else if (activeSection === 'Diary') setShowDiaryDialog(true); else setShowAddPlace(true); }}><Plus size={18} /><span>{activeSection === 'Trips' ? 'New trip' : activeSection === 'Diary' ? 'Add entry' : 'Add place'}</span></button>}
             </div>
