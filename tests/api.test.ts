@@ -381,7 +381,7 @@ test('Scan For Additions finds only saved visits in a trip window and is idempot
     'place:planned','photo','place:manual','place:diary','hotel:hotel'
   ]);
   assert.deepEqual(scanned.data.route.completedPlaceIds,[
-    'place:planned','photo','place:manual','place:diary','hotel:hotel'
+    'place:planned','place:manual','place:diary','place:photo','hotel:hotel'
   ]);
   assert.equal(scanned.data.visitDates['place:photo'],'2026-04-12');
   assert.equal(scanned.data.visitDates['place:diary'],'2026-04-11');
