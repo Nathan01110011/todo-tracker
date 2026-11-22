@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { MapContainer, Marker, TileLayer, useMap, useMapEvents } from 'react-leaflet';
-import { Camera, FolderOpen, Loader2, MapPin, Search, Navigation } from 'lucide-react';
+import { FolderOpen, Loader2, MapPin, Search, Navigation } from 'lucide-react';
 import type { DiaryEntry } from '../types';
 import { readPhotoExif } from '../lib/photoMetadata';
 import { selectOriginalPhotos, isImageFile } from '../lib/photoPicker';
@@ -36,6 +36,7 @@ export default function PhotoLocationEditor({ entry, center, onClose, onSave }: 
   const [longitude, setLongitude] = useState(entry.lng ? String(entry.lng) : '');
   const [message, setMessage] = useState('');
   const [reading, setReading] = useState(false);
+  const [useStandardPicker, setUseStandardPicker] = useState(false);
   const [locating, setLocating] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searching, setSearching] = useState(false);
@@ -85,11 +86,13 @@ export default function PhotoLocationEditor({ entry, center, onClose, onSave }: 
 
   const browseOriginal = async () => {
     if (reading || saving) return;
+    if (useStandardPicker) { originalInput.current?.click(); return; }
     try {
       const files = await selectOriginalPhotos(originalInput.current);
       if (files?.length) await inspectOriginal(files[0]);
     } catch {
-      setMessage('File picker unavailable. You can still search for a place or pick it on the map.');
+      setUseStandardPicker(true);
+      setMessage('Tap Read GPS from original photo again to open the standard Files picker.');
     }
   };
 
