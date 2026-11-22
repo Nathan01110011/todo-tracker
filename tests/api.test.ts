@@ -300,3 +300,43 @@ test('trips can be edited in place with optional dates and existing completion s
   assert.equal(day.endDate,'');
   assert.equal(day.status,'planned');
 });
+
+
+test('photos check off only the matching dated trip stops, using capture date and not upload date', async () => {
+  sharedDoc.sheetsByTitle = {};
+  const places = await sharedDoc.addSheet({ title:'Places', headerValues:['id','name','status','date','scope'] });
+  const hotels = await sharedDoc.addSheet({ title:'Hotels', headerValues:['id','name','status','date','scope'] });
+  await sharedDoc.addSheet({ title:'Photos', headerValues:['locationId','url'] });
+  const routes = await sharedDoc.addSheet({ title:'Routes', headerValues:['id','name','placeIds','scope','tripType','completedPlaceIds','status','startDate','endDate'] });
+  await places.addRow({ id:'museum', name:'Museum', status:'Visited', date:'2025-01-01', scope:'USA' });
+  await hotels.addRow({ id:'museum', name:'Hotel', status:'To Do', scope:'USA' });
+  const add = (id:string,startDate:string,endDate:string,placeIds='place:museum,place:other',completedPlaceIds='',status='planned') =>
+    routes.addRow({ id,name:id,placeIds,scope:'USA',tripType:'unordered',completedPlaceIds,status,startDate,endDate });
+  await add('multi','2026-01-10','2026-01-12','place:museum,place:other','place:other','active');
+  await add('single','2026-01-12','');
+  await add('earlier','2026-01-09','2026-01-11');
+  await add('undated','','');
+  await add('unrelated','2026-01-12','','place:other');
+  await add('hotel','2026-01-12','','hotel:museum');
+  await add('legacy','2026-01-12','','museum');
+  const upload = (url:string,capturedAt:string,type='place') => request('POST',{ id:'museum',type,photoUrl:'https://example.com/'+url,capturedAt,visitDate:'2026-01-12',recordDiary:false },'test-owner');
+  const missing = await upload('missing.jpg','');
+  assert.deepEqual(missing.data.tripUpdates,[]);
+  const invalid = await upload('invalid.jpg','2026:02:30 10:00:00');
+  assert.deepEqual(invalid.data.tripUpdates,[]);
+  const photo = await upload('old.jpg','2026:01:12 13:00:00');
+  assert.equal(photo.status,200);
+  assert.deepEqual(photo.data.tripUpdates.map((trip:any)=>trip.id),['multi','single','legacy']);
+  assert.equal(photo.data.visit.date,'2025-01-01');
+  assert.deepEqual(photo.data.tripUpdates[0].completedPlaceIds,['place:other','place:museum']);
+  assert.equal((await upload('old.jpg','2026:01:12 13:00:00')).data.tripUpdates.length,0);
+  const hotel = await upload('hotel.jpg','2026-01-12T14:00:00','hotel');
+  assert.deepEqual(hotel.data.tripUpdates.map((trip:any)=>trip.id),['hotel']);
+  const read = await request('GET');
+  const byId = (id:string) => read.data.routes.find((route:any)=>route.id===id);
+  assert.equal(byId('multi').status,'active');
+  assert.equal(byId('single').status,'planned');
+  assert.deepEqual(byId('earlier').completedPlaceIds,[]);
+  assert.deepEqual(byId('undated').completedPlaceIds,[]);
+  assert.deepEqual(byId('unrelated').completedPlaceIds,[]);
+});

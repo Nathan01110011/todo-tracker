@@ -1,3 +1,5 @@
+import { SiteSelect, SiteInput } from './components/SiteControls';
+import { readPhotoExif, cloudinaryPhotoMetadata } from './lib/photoMetadata';
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline } from 'react-leaflet';
@@ -223,11 +225,11 @@ const EventDateDialog = ({ placeName, isAdding, onConfirm, onCancel }: {
         <div className="p-5 space-y-4">
           <label className="block space-y-1">
             <span className="text-xs font-bold tracking-wide text-slate-400">Start date</span>
-            <input required type="date" value={startDate} onChange={(event) => { setStartDate(event.target.value); if (endDate && event.target.value > endDate) setEndDate(''); }} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
+            <SiteInput aria-label="Start date" required type="date" value={startDate} onChange={(event) => { setStartDate(event.target.value); if (endDate && event.target.value > endDate) setEndDate(''); }} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
           </label>
           <label className="block space-y-1">
             <span className="text-xs font-bold tracking-wide text-slate-400">End date <span className="normal-case font-medium">(optional)</span></span>
-            <input type="date" min={startDate || undefined} value={endDate} onChange={(event) => setEndDate(event.target.value)} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
+            <SiteInput aria-label="End date" type="date" min={startDate || undefined} value={endDate} onChange={(event) => setEndDate(event.target.value)} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
           </label>
           <p className="text-xs text-slate-400">Leave the end date blank for a single-day event.</p>
         </div>
@@ -292,9 +294,9 @@ const EditLocationModal = ({ item, onSave, onDelete, onClose }: { item: Place, o
           {!isHotel && (
             <label className="block space-y-1">
               <span className="text-xs font-bold tracking-wide text-slate-400">Category</span>
-              <select value={category} onChange={(e) => setCategory(e.target.value)} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm">
+              <SiteSelect aria-label="Category" value={category} onChange={(e) => setCategory(e.target.value)} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm">
                 {PLACE_CATEGORIES.map(option => <option key={option} value={option}>{option}</option>)}
-              </select>
+              </SiteSelect>
             </label>
           )}
           <label className="block space-y-1">
@@ -321,11 +323,11 @@ const EditLocationModal = ({ item, onSave, onDelete, onClose }: { item: Place, o
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <label className="block space-y-1">
                 <span className="text-xs font-bold tracking-wide text-slate-400">Event start</span>
-                <input required type="date" value={eventStartDate} onChange={(event) => { setEventStartDate(event.target.value); if (eventEndDate && event.target.value > eventEndDate) setEventEndDate(''); }} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
+                <SiteInput aria-label="Event start date" required type="date" value={eventStartDate} onChange={(event) => { setEventStartDate(event.target.value); if (eventEndDate && event.target.value > eventEndDate) setEventEndDate(''); }} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
               </label>
               <label className="block space-y-1">
                 <span className="text-xs font-bold tracking-wide text-slate-400">Event end <span className="normal-case font-medium">(optional)</span></span>
-                <input type="date" min={eventStartDate || undefined} value={eventEndDate} onChange={(event) => setEventEndDate(event.target.value)} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
+                <SiteInput aria-label="Event end date" type="date" min={eventStartDate || undefined} value={eventEndDate} onChange={(event) => setEventEndDate(event.target.value)} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
               </label>
             </div>
           )}
@@ -619,6 +621,7 @@ const PhotoModal = ({ item, isOpen, onClose, onUpload, onCommentSave, onDeletePh
       if (!sigRes.ok) throw new Error(sigData.error || 'Failed to get signature');
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
+        const localMetadata = await readPhotoExif(file);
         if (files.length > 1) setUploadStatus(`Uploading ${i + 1}/${files.length}...`);
         const formData = new FormData();
         formData.append('file', file);
@@ -631,8 +634,8 @@ const PhotoModal = ({ item, isOpen, onClose, onUpload, onCommentSave, onDeletePh
         const data = await res.json();
         if (!res.ok) throw new Error(data.error?.message || 'Cloudinary upload failed');
         if (data.secure_url) {
-          const metadata = data.media_metadata || data.image_metadata || {};
-          const capturedAt = metadata.DateTimeOriginal || metadata.DateTimeDigitized || metadata.CreateDate || metadata.DateTime || '';
+          const remoteMetadata = cloudinaryPhotoMetadata(data.media_metadata || data.image_metadata);
+          const capturedAt = localMetadata.capturedAt || remoteMetadata.capturedAt || '';
           await onUpload({
             url: data.secure_url,
             comment: '',
@@ -1274,7 +1277,15 @@ const App = () => {
           setDiaryEntries(current => current.some(entry => entry.placeId === data.diaryEntry.placeId && entry.placeType === data.diaryEntry.placeType && entry.date === data.diaryEntry.date)
             ? current : [data.diaryEntry, ...current]);
         }
-        if (data.diaryWarning) setToastMessage(data.diaryWarning);
+        const tripUpdates = Array.isArray(data.tripUpdates) ? data.tripUpdates as Array<{ id: string; completedPlaceIds: string[] }> : [];
+        if (tripUpdates.length) {
+          setRoutes(current => current.map(route => {
+            const update = tripUpdates.find(entry => entry.id === route.id);
+            return update ? { ...route, completedPlaceIds: [...new Set([...route.completedPlaceIds, ...update.completedPlaceIds])] } : route;
+          }));
+        }
+        const messages = [data.diaryWarning, data.tripWarning, tripUpdates.length ? 'Photo checked off a stop in ' + tripUpdates.length + (tripUpdates.length === 1 ? ' trip.' : ' trips.') : ''].filter(Boolean);
+        if (messages.length) setToastMessage(messages.join(' '));
       } else {
         throw new Error(data.error || 'Photo linked failed.');
       }
@@ -2151,7 +2162,7 @@ const App = () => {
 
             <label className="block">
               <span className="text-xs font-semibold tracking-wide text-slate-400">Date</span>
-              <input type="date" value={diaryDate} max={format(new Date(), 'yyyy-MM-dd')} onChange={event => setDiaryDate(event.target.value)} className="mt-1 w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500" />
+              <SiteInput aria-label="Diary date" type="date" value={diaryDate} max={format(new Date(), 'yyyy-MM-dd')} onChange={event => setDiaryDate(event.target.value)} className="mt-1 w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500" />
             </label>
 
             <div>
@@ -2266,7 +2277,7 @@ const App = () => {
                   if (placeSearchSequence.current === requestId) setIsSearching(false);
                 }
               }} className="space-y-3">
-                <label className="place-field"><span>Save to tracker</span><select aria-label="Save place to tracker" value={activeScope} onChange={event => { setActiveScope(event.target.value as ScopeName); setSearchResults([]); setMapTarget(null); }}>{SCOPE_NAMES.map(scope => <option key={scope} value={scope}>{scope}</option>)}</select></label>
+                <label className="place-field"><span>Save to tracker</span><SiteSelect aria-label="Save place to tracker" value={activeScope} onChange={event => { setActiveScope(event.target.value as ScopeName); setSearchResults([]); setMapTarget(null); }}>{SCOPE_NAMES.map(scope => <option key={scope} value={scope}>{scope}</option>)}</SiteSelect></label>
                 <label className="place-field"><span>Name or address in {activeScope}</span><input autoFocus type="search" aria-label="Search for a new place" value={searchQuery} onChange={event => setSearchQuery(event.target.value)} placeholder="e.g. Museum of the Weird" /></label>
                 <button type="submit" className="primary-button w-full" disabled={isSearching || !searchQuery.trim()}>{isSearching ? <Loader2 size={18} className="animate-spin" /> : <Search size={18} />}Search places</button>
               </form>
@@ -2288,7 +2299,7 @@ const App = () => {
           <header className="tracker-topbar">
             <h1>{activeSection}</h1>
             <div className="topbar-actions">
-              {activeSection !== 'Experiences' && <label className="scope-picker"><MapPin size={16} /><select aria-label="Tracker region" disabled={isSavingRoute} value={browseAllTrackers ? "all" : activeScope} onChange={event => { setAllTrackers(event.target.value === "all"); if (event.target.value !== "all") setActiveScope(event.target.value as ScopeName); setActiveRouteId(null); setMapTarget(null); setHoveredId(null); setSelectedMapId(null); setIsJourneyMode(false); setEditingRouteId(null); }} >{isPlaceCollection && <option value="all">All trackers</option>}{SCOPE_NAMES.map(scope => <option key={scope} value={scope}>{SCOPE_CONFIG[scope].label}</option>)}</select><ChevronDown size={14} /></label>}
+              {activeSection !== 'Experiences' && <label className="scope-picker"><MapPin size={16} /><SiteSelect aria-label="Tracker region" disabled={isSavingRoute} value={browseAllTrackers ? "all" : activeScope} onChange={event => { setAllTrackers(event.target.value === "all"); if (event.target.value !== "all") setActiveScope(event.target.value as ScopeName); setActiveRouteId(null); setMapTarget(null); setHoveredId(null); setSelectedMapId(null); setIsJourneyMode(false); setEditingRouteId(null); }} >{isPlaceCollection && <option value="all">All trackers</option>}{SCOPE_NAMES.map(scope => <option key={scope} value={scope}>{SCOPE_CONFIG[scope].label}</option>)}</SiteSelect></label>}
               <button type="button" className="mobile-utility icon-button" onClick={() => setIsDarkMode(current => !current)} aria-label={isDarkMode ? 'Use light mode' : 'Use dark mode'}>{isDarkMode ? <Sun size={18} /> : <Moon size={18} />}</button>
               {isOwner ? <button type="button" className="mobile-utility icon-button" onClick={() => setShowDebugPanel(true)} aria-label="Settings"><Settings size={18} /></button> : <button type="button" className="mobile-utility icon-button" onClick={() => { setIsAuthError(false); setShowSignIn(true); }} aria-label="Owner sign in"><LogIn size={18} /></button>}
             </div>
@@ -2393,10 +2404,10 @@ const App = () => {
                   />
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <label className="min-w-0 text-white text-xs font-semibold">Trip date / start
-                      <input type="date" value={journeyStartDate} disabled={isSavingRoute} onChange={event => setJourneyStartDate(event.target.value)} className="block w-full min-w-0 mt-1 px-2 py-2 bg-white/10 border border-white/20 rounded-lg text-white" />
+                      <SiteInput aria-label="Trip start date" type="date" value={journeyStartDate} disabled={isSavingRoute} onChange={event => setJourneyStartDate(event.target.value)} className="block w-full min-w-0 mt-1 px-2 py-2 bg-white/10 border border-white/20 rounded-lg text-white" />
                     </label>
                     <label className="min-w-0 text-white text-xs font-semibold">End date (optional)
-                      <input type="date" value={journeyEndDate} min={journeyStartDate || undefined} disabled={isSavingRoute} onChange={event => setJourneyEndDate(event.target.value)} className="block w-full min-w-0 mt-1 px-2 py-2 bg-white/10 border border-white/20 rounded-lg text-white" />
+                      <SiteInput aria-label="Trip end date" type="date" value={journeyEndDate} min={journeyStartDate || undefined} disabled={isSavingRoute} onChange={event => setJourneyEndDate(event.target.value)} className="block w-full min-w-0 mt-1 px-2 py-2 bg-white/10 border border-white/20 rounded-lg text-white" />
                     </label>
                   </div>
                   <p className="text-xs text-white/70">Leave both blank for an undated trip, or just choose a start date for a single day.</p>
