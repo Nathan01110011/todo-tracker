@@ -797,7 +797,7 @@ const PhotoModal = ({ item, isOpen, onClose, onUpload, onCommentSave, onDeletePh
             </button>
             <button type="button" disabled={!!uploadStatus} onClick={() => galleryInputRef.current?.click()} className="text-xs font-semibold text-indigo-600 hover:underline">Choose from gallery instead (may remove GPS)</button>
             <p className="text-xs text-slate-500 text-center">Choose ordinary JPEG, PNG or HEIC files directly — no ZIP. Saved destinations already have map coordinates; photo dates are used for diary and trip matching.</p>
-            {uploadNotice && <p role="status" className="text-xs font-semibold text-slate-600 text-center">{uploadNotice}</p>
+            {uploadNotice && <p role="status" className="text-xs font-semibold text-slate-600 text-center">{uploadNotice}</p>}
             {hasMissingCaptureDates && (
               <>
                 <div className="text-center text-xs font-bold text-amber-700">
