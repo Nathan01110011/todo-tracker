@@ -97,6 +97,9 @@ test('opt-in location keeps hard country boundaries and biases USA results witho
   }) as typeof fetch;
   const results = await searchLocations('USA', 'museum', returned, chicago);
   assert.deepEqual(results.map(item => item.display_name), [
+    'Museum in Seattle', 'Museum near Chicago', 'Museum in Minneapolis'
+  ], 'search preserves remote ranking for when location is cleared');
+  assert.deepEqual(sortLocationsByDistance(results, chicago).map(item => item.display_name), [
     'Museum near Chicago', 'Museum in Minneapolis', 'Museum in Seattle'
   ]);
   assert.equal(matches[0].display_name, 'Museum in Seattle', 'sorting must not mutate the server results');
