@@ -448,3 +448,16 @@ button:disabled { opacity: .55; }
 html.theme-dark .tracker-topbar h1 { font-size: 1.4rem; font-weight: 650; letter-spacing: -.055em; }
 html.theme-dark .place-card { border-radius: 8px; }
 html.theme-dark .section-link.is-active { box-shadow: inset 2px 0 var(--accent); }
+
+
+/* Opt-in nearby search, using the active Atlas / Signal palette. */
+.add-place-location-tools { display:flex; align-items:center; flex-wrap:wrap; gap:8px 12px; }
+.add-place-location-button { display:inline-flex; align-items:center; justify-content:center; gap:7px; min-height:40px; padding:8px 12px; border-radius:9px; font-size:.875rem; font-weight:600; }
+.add-place-location-button[aria-pressed=true] { color:var(--accent); border-color:var(--accent-border); background:var(--accent-soft); }
+.add-place-location-hint { font-size:.75rem; color:var(--muted); }
+.add-place-location-error { padding:8px 10px; background:var(--warning-soft); border:1px solid var(--warning); border-radius:8px; color:var(--warning); font-size:.8125rem; }
+.add-place-location-order { font-size:.75rem; line-height:1.5; color:var(--muted); }
+.search-result .search-result-heading { display:flex; align-items:center; justify-content:space-between; gap:10px; color:var(--text); }
+.search-result .search-result-heading strong { overflow-wrap:anywhere; }
+.search-result .search-result-distance { flex-shrink:0; font-style:normal; font-size:.75rem; font-weight:650; color:var(--accent); background:var(--accent-soft); border-radius:6px; padding:4px 6px; font-variant-numeric:tabular-nums; }
+@media(max-width:480px){ .search-result .search-result-heading { align-items:flex-start; } }

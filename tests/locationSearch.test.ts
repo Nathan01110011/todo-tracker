@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { locationSearchUrl, filterLocationResults, searchLocations } from '../src/lib/locationSearch';
+import { locationSearchUrl, filterLocationResults, searchLocations, locationDistanceMiles, sortLocationsByDistance } from '../src/lib/locationSearch';
 
 const location = (name: string, country: string, lat = '30.0', lon = '-97.0') => ({
   display_name: name,
@@ -68,4 +68,52 @@ test('location search rejects international, ambiguous, and malformed results ev
   const failed = (async () => new Response('error', { status: 500 })) as typeof fetch;
   await assert.rejects(searchLocations('USA', 'test', failed), /Location search failed/);
   assert.deepEqual(filterLocationResults({ error: 'rate limited' }, 'USA'), []);
+});
+
+
+test('opt-in location keeps hard country boundaries and biases USA results without restricting the country', async () => {
+  const chicago = { lat: 41.8818, lng: -87.6278 };
+  const url = new URL(locationSearchUrl('USA', 'museum', chicago));
+  assert.equal(url.searchParams.get('countrycodes'), 'us');
+  assert.equal(url.searchParams.get('bounded'), null);
+  assert.ok(url.searchParams.has('viewbox'));
+  assert.equal(new URL(locationSearchUrl('USA', 'museum')).searchParams.has('viewbox'), false);
+  const texas = new URL(locationSearchUrl('Texas', 'museum', chicago));
+  assert.equal(texas.searchParams.get('bounded'), '1');
+  assert.equal(texas.searchParams.get('viewbox'), '-106.65,36.5,-93.51,25.84');
+  assert.equal(new URL(locationSearchUrl('USA', 'museum', { lat: NaN, lng: -87 })).searchParams.has('viewbox'), false);
+
+  const matches = [
+    location('Museum in Seattle', 'us', '47.61', '-122.33'),
+    location('Museum near Chicago', 'us', '41.88', '-87.62'),
+    location('Museum in Toronto', 'ca', '43.65', '-79.38'),
+    location('Museum in Minneapolis', 'us', '44.98', '-93.27')
+  ];
+  const returned = (async (input: RequestInfo | URL) => {
+    const params = new URL(String(input)).searchParams;
+    assert.equal(params.get('countrycodes'), 'us');
+    assert.ok(params.has('viewbox'));
+    return new Response(JSON.stringify(matches), { status: 200 });
+  }) as typeof fetch;
+  const results = await searchLocations('USA', 'museum', returned, chicago);
+  assert.deepEqual(results.map(item => item.display_name), [
+    'Museum in Seattle', 'Museum near Chicago', 'Museum in Minneapolis'
+  ], 'search preserves remote ranking for when location is cleared');
+  assert.deepEqual(sortLocationsByDistance(results, chicago).map(item => item.display_name), [
+    'Museum near Chicago', 'Museum in Minneapolis', 'Museum in Seattle'
+  ]);
+  assert.equal(matches[0].display_name, 'Museum in Seattle', 'sorting must not mutate the server results');
+  assert.ok(locationDistanceMiles(chicago, {lat: 41.88, lng: -87.62}) < 1);
+  assert.ok(locationDistanceMiles(chicago, {lat: 44.98, lng: -93.27}) > 300);
+});
+
+test('distance ranking is optional and stable when points have identical coordinates', () => {
+  const results = [
+    location('First Chicago match', 'us', '41.88', '-87.62'),
+    location('Second Chicago match', 'us', '41.88', '-87.62'),
+    location('Distant match', 'us', '47.61', '-122.33')
+  ];
+  assert.equal(sortLocationsByDistance(results, null), results);
+  assert.deepEqual(sortLocationsByDistance(results, { lat: 41.88, lng: -87.62 })
+    .map(item => item.display_name), results.map(item => item.display_name));
 });
