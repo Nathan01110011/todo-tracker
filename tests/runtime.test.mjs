@@ -13,7 +13,7 @@ test('production API starts as unbundled ESM and returns JSON without contacting
   try {
     await writeFile(path.join(dir, 'package.json'), JSON.stringify({ type: 'module' }));
     // Vercel emits separate .js files; bundling these imports would hide resolution failures.
-    for (const file of ['api/places.ts', 'server/experiences.ts', 'src/lib/experiences.ts', 'src/lib/experienceSeeds.ts']) {
+    for (const file of ['api/places.ts', 'server/experiences.ts', 'src/lib/experiences.ts', 'src/lib/experienceSeeds.ts', 'src/lib/tripVisits.ts']) {
       const output = path.join(dir, file.replace(/\.ts$/, '.js'));
       await mkdir(path.dirname(output), { recursive: true });
       const source = await readFile(path.join(root, file), 'utf8');
