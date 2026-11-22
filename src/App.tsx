@@ -10,7 +10,7 @@ import TrackerNavigation, { type TrackerSection } from './components/TrackerNavi
 import ExperiencesPanel from './components/ExperiencesPanel';
 import GeneralPhotoUpload from './components/GeneralPhotoUpload';
 import PhotoLocationEditor from './components/PhotoLocationEditor';
-import { searchLocations } from './lib/locationSearch';
+import { searchLocations, sortLocationsByDistance, locationDistanceMiles, type SearchPosition, type NominatimLocation } from './lib/locationSearch';
 import { PLACE_CATEGORIES, LOCATION_CATEGORIES } from './lib/placeCategories';
 import { emptyExperiences, type Experiences } from './lib/experiences';
 import PlaceCard from './components/PlaceCard';
@@ -892,7 +892,14 @@ const App = () => {
   }, [lockoutUntil]);
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searchResults, setSearchResults] = useState<NominatimLocation[]>([]);
+  const [addSearchPosition, setAddSearchPosition] = useState<SearchPosition | null>(null);
+  const [isAddSearchLocating, setIsAddSearchLocating] = useState(false);
+  const [addSearchLocationError, setAddSearchLocationError] = useState('');
+  const rankedAddPlaceResults = useMemo(
+    () => sortLocationsByDistance(searchResults, addSearchPosition),
+    [searchResults, addSearchPosition]
+  );
   const [isSearching, setIsSearching] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const [isSavingRoute, setIsSavingRoute] = useState(false);
@@ -913,6 +920,7 @@ const App = () => {
   const [isLocating, setIsLocating] = useState(false);
   const [diaryMarkVisited, setDiaryMarkVisited] = useState(true);
   const placeSearchSequence = useRef(0);
+  const addSearchLocationRequest = useRef(0);
   const diarySearchSequence = useRef(0);
   const currentSearchScope = useRef(activeScope);
   currentSearchScope.current = activeScope;
@@ -926,6 +934,17 @@ const App = () => {
     setIsSearching(false);
     setIsDiarySearching(false);
   }, [activeScope]);
+
+  // Location is held only while Add Place is open, never saved to storage.
+  // Invalidate pending browser callbacks when leaving the dialog.
+  useEffect(() => {
+    if (showAddPlace) return;
+    addSearchLocationRequest.current += 1;
+    placeSearchSequence.current += 1;
+    setAddSearchPosition(null);
+    setIsAddSearchLocating(false);
+    setAddSearchLocationError('');
+  }, [showAddPlace]);
 
   useEffect(() => {
     const handleResize = () => setWindowWidth(window.innerWidth);
@@ -1119,6 +1138,37 @@ const App = () => {
     } finally {
       if (diarySearchSequence.current === requestId) setIsDiarySearching(false);
     }
+  };
+
+  const toggleAddSearchLocation = () => {
+    if (addSearchPosition) {
+      addSearchLocationRequest.current += 1;
+      setAddSearchPosition(null);
+      setAddSearchLocationError('');
+      return;
+    }
+    if (!navigator.geolocation) {
+      setAddSearchLocationError('This browser does not support location sharing. Search will still work normally.');
+      return;
+    }
+    const requestId = ++addSearchLocationRequest.current;
+    setIsAddSearchLocating(true);
+    setAddSearchLocationError('');
+    navigator.geolocation.getCurrentPosition(
+      position => {
+        if (addSearchLocationRequest.current !== requestId) return;
+        setAddSearchPosition({ lat: position.coords.latitude, lng: position.coords.longitude });
+        setIsAddSearchLocating(false);
+      },
+      error => {
+        if (addSearchLocationRequest.current !== requestId) return;
+        setIsAddSearchLocating(false);
+        setAddSearchLocationError(error.code === 1
+          ? 'Location permission denied. You can still search without sharing it.'
+          : 'Could not determine your location. You can still search normally.');
+      },
+      { enableHighAccuracy: false, maximumAge: 120000, timeout: 10000 }
+    );
   };
 
   const locateNearby = () => {
@@ -2267,7 +2317,7 @@ const App = () => {
                 setIsSearching(true);
                 setSearchResults([]);
                 try {
-                  const results = await searchLocations(scope, searchQuery);
+                  const results = await searchLocations(scope, searchQuery, fetch, addSearchPosition);
                   if (placeSearchSequence.current === requestId && currentSearchScope.current === scope) {
                     setSearchResults(results);
                   }
@@ -2279,9 +2329,18 @@ const App = () => {
               }} className="space-y-3">
                 <label className="place-field"><span>Save to tracker</span><SiteSelect aria-label="Save place to tracker" value={activeScope} onChange={event => { setActiveScope(event.target.value as ScopeName); setSearchResults([]); setMapTarget(null); }}>{SCOPE_NAMES.map(scope => <option key={scope} value={scope}>{scope}</option>)}</SiteSelect></label>
                 <label className="place-field"><span>Name or address in {activeScope}</span><input autoFocus type="search" aria-label="Search for a new place" value={searchQuery} onChange={event => setSearchQuery(event.target.value)} placeholder="e.g. Museum of the Weird" /></label>
+                <div className="add-place-location-tools">
+                  <button type="button" aria-pressed={Boolean(addSearchPosition)} className="secondary-button add-place-location-button" disabled={isAddSearchLocating} onClick={toggleAddSearchLocation}>
+                    {isAddSearchLocating ? <Loader2 size={17} className="animate-spin" /> : <LocateFixed size={17} />}
+                    {isAddSearchLocating ? 'Getting location…' : addSearchPosition ? 'Stop using my location' : 'Use my location'}
+                  </button>
+                  <span className="add-place-location-hint">{addSearchPosition ? 'Nearest matches first · miles shown below' : 'Optional · nearby results first'}</span>
+                </div>
+                {addSearchLocationError && <p role="status" className="add-place-location-error">{addSearchLocationError}</p>}
                 <button type="submit" className="primary-button w-full" disabled={isSearching || !searchQuery.trim()}>{isSearching ? <Loader2 size={18} className="animate-spin" /> : <Search size={18} />}Search places</button>
               </form>
-              <div className="space-y-2">{searchResults.map((result, index) => <button key={index} type="button" onClick={() => { setPendingPlace(result); setPendingName(result.display_name.split(',')[0]); setPendingDetails(''); setPendingChain(false); }} className="search-result"><strong>{result.display_name.split(',')[0]}</strong><span>{result.display_name.split(',').slice(1).join(',')}</span></button>)}</div>
+              {addSearchPosition && searchResults.length > 0 && <p className="add-place-location-order" role="status">Sorted by straight-line distance from your current location. Your selected tracker boundaries still apply.</p>}
+              <div className="space-y-2">{rankedAddPlaceResults.map((result, index) => <button key={`${result.display_name}-${result.lat}-${result.lon}-${index}`} type="button" onClick={() => { setPendingPlace(result); setPendingName(result.display_name.split(',')[0]); setPendingDetails(''); setPendingChain(false); }} className="search-result"><span className="search-result-heading"><strong>{result.display_name.split(',')[0]}</strong>{addSearchPosition && <em className="search-result-distance">{locationDistanceMiles(addSearchPosition, { lat: Number(result.lat), lng: Number(result.lon) }).toFixed(1)} mi</em>}</span><span>{result.display_name.split(',').slice(1).join(',')}</span></button>)}</div>
             </> : <>
               <p className="text-sm text-slate-500">{pendingPlace.display_name}</p>
               <label className="place-field"><span>Name</span><input value={pendingName} onChange={event => setPendingName(event.target.value)} /></label>
