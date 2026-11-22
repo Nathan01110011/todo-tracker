@@ -11,6 +11,7 @@ import ExperiencesPanel from './components/ExperiencesPanel';
 import GeneralPhotoUpload from './components/GeneralPhotoUpload';
 import PhotoLocationEditor from './components/PhotoLocationEditor';
 import { searchLocations, sortLocationsByDistance, locationDistanceMiles, type SearchPosition, type NominatimLocation } from './lib/locationSearch';
+import { normalizeTripStop, orderTripStops, tripVisitDates } from './lib/tripVisits';
 import { PLACE_CATEGORIES, LOCATION_CATEGORIES } from './lib/placeCategories';
 import { emptyExperiences, type Experiences } from './lib/experiences';
 import PlaceCard from './components/PlaceCard';
@@ -903,6 +904,7 @@ const App = () => {
   const [isSearching, setIsSearching] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const [isSavingRoute, setIsSavingRoute] = useState(false);
+  const [scanningRouteId, setScanningRouteId] = useState<string | null>(null);
   const [pendingPlace, setPendingPlace] = useState<any>(null);
   const [pendingName, setPendingName] = useState('');
   const [pendingDetails, setPendingDetails] = useState('');
@@ -1663,6 +1665,33 @@ const App = () => {
     }
   };
 
+  const scanTripAdditions = async (route: Route) => {
+    if (!isOwner || !appPassword || scanningRouteId) return;
+    setScanningRouteId(route.id);
+    try {
+      const response = await fetch('/api/places', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: appPassword },
+        body: JSON.stringify({ type: 'route', action: 'scanVisits', id: route.id }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.success) throw new Error(result.error || 'Trip scan failed.');
+      setRoutes(current => current.map(item => item.id === route.id
+        ? { ...item, placeIds: result.route.placeIds, completedPlaceIds: result.route.completedPlaceIds }
+        : item));
+      setActiveRouteId(route.id);
+      const added = Number(result.addedCount) || 0;
+      const checked = Number(result.checkedCount) || 0;
+      setToastMessage(added || checked
+        ? `Trip scan: added ${added} visited ${added === 1 ? 'place' : 'places'} and checked off ${checked} existing ${checked === 1 ? 'stop' : 'stops'}.`
+        : 'No additional dated visits found for this trip.');
+    } catch (error: any) {
+      setError(error.message || 'Could not scan trip visits.');
+    } finally {
+      setScanningRouteId(null);
+    }
+  };
+
   const startTrip = async (route: Route) => {
     await updateRoute(route, { status: 'active' });
     setToastMessage(`Trip "${route.name}" started.`);
@@ -1670,10 +1699,11 @@ const App = () => {
 
   const toggleTripPlace = async (route: Route, compositeId: string) => {
     if (!isOwner || route.status !== 'active') return;
-    const isComplete = route.completedPlaceIds.includes(compositeId);
+    const normalizedId = normalizeTripStop(compositeId);
+    const isComplete = route.completedPlaceIds.some(id => normalizeTripStop(id) === normalizedId);
     const completedPlaceIds = isComplete
-      ? route.completedPlaceIds.filter(id => id !== compositeId)
-      : [...route.completedPlaceIds, compositeId];
+      ? route.completedPlaceIds.filter(id => normalizeTripStop(id) !== normalizedId)
+      : [...route.completedPlaceIds, normalizedId];
     const [type, id] = compositeId.includes(':') ? compositeId.split(':') : ['place', compositeId];
     if (type === 'place' || type === 'hotel') {
       await updatePlace(id, { status: isComplete ? 'To Do' : 'Visited' }, type);
@@ -1687,7 +1717,7 @@ const App = () => {
       message: `Complete trip "${route.name}"? Unchecked locations will remain in To Do.`,
       onConfirm: async () => {
         const uncheckedUpdates = route.placeIds
-          .filter(compositeId => !route.completedPlaceIds.includes(compositeId))
+          .filter(compositeId => !route.completedPlaceIds.some(id => normalizeTripStop(id) === normalizeTripStop(compositeId)))
           .map(compositeId => {
             const [type, id] = compositeId.includes(':') ? compositeId.split(':') : ['place', compositeId];
             if (type !== 'place' && type !== 'hotel') return Promise.resolve();
@@ -1707,6 +1737,10 @@ const App = () => {
   const browseAllTrackers = isPlaceCollection && allTrackers;
   const matchesSearch = (item: Parameters<typeof matchesCollectionSearch>[0]) => matchesCollectionSearch(item, listSearch);
   const allPlaceItems = useMemo(() => [...places.map(item => ({ ...item, type: 'place' as const })), ...hotels.map(item => ({ ...item, type: 'hotel' as const, category: 'Hotels' }))], [places, hotels]);
+  const tripVisitLocations = useMemo(() => [
+    ...places.map(place => ({ ...place, type: 'place' as const })),
+    ...hotels.map(hotel => ({ ...hotel, type: 'hotel' as const })),
+  ], [places, hotels]);
   const scopedItems = useMemo(() => allPlaceItems.filter(item => browseAllTrackers || item.scope === activeScope), [allPlaceItems, browseAllTrackers, activeScope]);
   const detailItem = allPlaceItems.find(item => `${item.type}:${item.id}` === detailItemId);
   const categoryCounts = useMemo(() => scopedItems.filter(item => matchesCollectionSearch(item, listSearch) && (filter === 'TODO' ? item.status === 'To Do' : filter === 'Visited' ? item.status === 'Visited' : filter === 'Return' ? isWouldReturn(item) : filter === 'Nearby' ? nearbyIncludeVisited || item.status !== 'Visited' : true)).reduce<Record<string, number>>((counts, item) => { const category = item.category || 'Other'; counts[category] = (counts[category] || 0) + 1; return counts; }, {}), [scopedItems, listSearch, filter, nearbyIncludeVisited]);
@@ -1786,12 +1820,13 @@ const App = () => {
       ids = getJourneyPathIds(selectedJourneyPlaces);
     } else if (activeRouteId && filter === 'Trips') {
       const route = routes.find(r => r.id === activeRouteId);
-      if (route) ids = route.placeIds;
+      if (route) ids = orderTripStops(route.placeIds, route.completedPlaceIds,
+        tripVisitDates(route, tripVisitLocations, diaryEntries, format(new Date(), 'yyyy-MM-dd')));
     }
     if (ids.length === 0) return [];
 
     return getJourneyItems(ids);
-  }, [isJourneyMode, selectedJourneyPlaces, activeRouteId, routes, places, hotels, markers, filter, journeySortMode, tripType]);
+  }, [isJourneyMode, selectedJourneyPlaces, activeRouteId, routes, places, hotels, markers, diaryEntries, tripVisitLocations, filter, journeySortMode, tripType]);
 
   const showRouteLine = isJourneyMode
     ? tripType === 'ordered'
@@ -2605,9 +2640,11 @@ const App = () => {
               ) : (
                 <div className="space-y-3">
                   {routes.filter(r => r.scope === activeScope && matchesSearch(r)).sort((a, b) => ({ active: 0, planned: 1, completed: 2 }[a.status] - { active: 0, planned: 1, completed: 2 }[b.status])).map(route => {
-                    const remainingIds = route.placeIds.filter(id => !route.completedPlaceIds.includes(id));
-                    const completedIds = route.placeIds.filter(id => route.completedPlaceIds.includes(id));
-                    const tripItems = getJourneyItems([...remainingIds, ...completedIds]);
+                    const recordedVisitDates = tripVisitDates(route, tripVisitLocations, diaryEntries, format(new Date(), 'yyyy-MM-dd'));
+                    const sortedIds = orderTripStops(route.placeIds, route.completedPlaceIds, recordedVisitDates);
+                    const completedStops = new Set(route.completedPlaceIds.map(normalizeTripStop));
+                    const remainingIds = route.placeIds.filter(id => !completedStops.has(normalizeTripStop(id)));
+                    const tripItems = getJourneyItems(sortedIds);
                     return <div
                       key={route.id}
                       className={`p-4 rounded-xl border transition-all cursor-pointer group ${activeRouteId === route.id ? 'bg-indigo-50 border-indigo-200 ring-1 ring-indigo-200 shadow-sm' : 'bg-white border-slate-100 hover:border-indigo-100'}`}
@@ -2616,7 +2653,7 @@ const App = () => {
                         <div className="space-y-1">
                           <h3 className="font-bold text-base text-slate-900"><button type="button" className="text-left hover:text-indigo-600" aria-expanded={activeRouteId === route.id} onClick={() => setActiveRouteId(activeRouteId === route.id ? null : route.id)}>{route.name}</button></h3>
                           <div className="flex flex-wrap items-center gap-1.5 text-xs font-semibold tracking-wide">
-                            <span className="text-slate-400">{route.completedPlaceIds.length}/{route.placeIds.length} complete</span>
+                            <span className="text-slate-400">{route.placeIds.filter(id => completedStops.has(normalizeTripStop(id))).length}/{route.placeIds.length} complete</span>
                             <span className="bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full">{route.tripType}</span>
                             <span className={`px-1.5 py-0.5 rounded-full ${route.status === 'completed' ? 'bg-green-100 text-green-700' : route.status === 'active' ? 'bg-indigo-100 text-indigo-700' : 'bg-amber-100 text-amber-700'}`}>{route.status}</span>
                           </div>
@@ -2651,10 +2688,20 @@ const App = () => {
                       </div>
                       {activeRouteId === route.id && (
                         <div className="mt-4 pt-4 border-t border-indigo-100 space-y-3 animate-in fade-in duration-300">
+                          <div className="trip-scan-tools">
+                            {isOwner && route.startDate ? <button type="button" className="secondary-button trip-scan-button" disabled={Boolean(scanningRouteId) || isSavingRoute} onClick={() => scanTripAdditions(route)}>
+                              {scanningRouteId === route.id ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />}
+                              {scanningRouteId === route.id ? 'Scanning visits…' : 'Scan For Additions'}
+                            </button> : null}
+                            <p className="trip-scan-caption">{route.startDate
+                              ? 'Visited stops first, in date order. Other stops keep their planned order.'
+                              : 'Add a trip date or date range to enable scanning for visited places.'}</p>
+                          </div>
                           {tripItems.map((p) => {
                             const compositeId = `${p.type}:${p.id}`;
-                            const isComplete = route.completedPlaceIds.includes(compositeId);
-                            const orderedPosition = route.placeIds.indexOf(compositeId) + 1;
+                            const isComplete = completedStops.has(compositeId);
+                            const visitDate = recordedVisitDates[compositeId];
+                            const orderedPosition = route.placeIds.findIndex(id => normalizeTripStop(id) === compositeId) + 1;
                             return <button
                               key={compositeId}
                               type="button"
@@ -2668,6 +2715,7 @@ const App = () => {
                               <div className="min-w-0 flex-1">
                                 <p className={`text-xs font-bold text-slate-700 truncate ${isComplete ? 'line-through' : ''}`}>{p.name}</p>
                                 <p className="text-xs text-slate-400 truncate">{p.address}</p>
+                                  {isComplete && visitDate && <p className="trip-stop-date"><Calendar size={12} />Visited {format(parseISO(visitDate), 'd MMM yyyy')}</p>}
                               </div>
                             </button>;
                           })}

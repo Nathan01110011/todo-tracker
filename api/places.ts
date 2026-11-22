@@ -1,4 +1,5 @@
 import { readExperiences, mutateExperiences, ExperienceError } from '../server/experiences.js';
+import { reconcileTripTimeline, tripVisitDates, validTripDay } from '../src/lib/tripVisits.js';
 import { GoogleSpreadsheet } from 'google-spreadsheet';
 import { JWT } from 'google-auth-library';
 import { v2 as cloudinary } from 'cloudinary';
@@ -792,6 +793,57 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           const rows = await routesSheet.getRows();
           const row = rows.find(r => r.get('id') === id);
           if (row) {
+            if (action === 'scanVisits') {
+              const scanStart = String(row.get('startDate') || '').trim();
+              const scanEnd = String(row.get('endDate') || '').trim() || scanStart;
+              if (!validTripDay(scanStart) || !validTripDay(scanEnd) || scanEnd < scanStart) {
+                return res.status(400).json({ error: 'Set a valid trip date or date range before scanning.' });
+              }
+              const [savedPlaces, savedHotels, linkedDiary, linkedPhotos] = await Promise.all([
+                placesSheet ? placesSheet.getRows() : Promise.resolve([]),
+                hotelsSheet ? hotelsSheet.getRows() : Promise.resolve([]),
+                diarySheet ? diarySheet.getRows() : Promise.resolve([]),
+                photosSheet ? photosSheet.getRows() : Promise.resolve([]),
+              ]);
+              const photosByLocation: Record<string, Array<{ capturedAt: string }>> = {};
+              for (const photo of linkedPhotos) {
+                const locationId = String(photo.get('locationId') || '');
+                if (!locationId || locationId.startsWith('diary:')) continue;
+                (photosByLocation[locationId] ||= []).push({
+                  capturedAt: photosSheet?.headerValues.includes('capturedAt') ? String(photo.get('capturedAt') || '') : ''
+                });
+              }
+              const locations = [
+                ...savedPlaces.map(p => ({ id: String(p.get('id') || ''), type: 'place' as const, scope: String(p.get('scope') || 'Austin'), status: String(p.get('status') || 'To Do'), date: String(p.get('date') || ''), photoDetails: photosByLocation[String(p.get('id') || '')] || [] })),
+                ...savedHotels.map(p => ({ id: String(p.get('id') || ''), type: 'hotel' as const, scope: String(p.get('scope') || 'Austin'), status: String(p.get('status') || 'To Do'), date: String(p.get('date') || ''), photoDetails: photosByLocation[String(p.get('id') || '')] || [] })),
+              ];
+              const diaryVisits = linkedDiary.map(entry => ({
+                placeId: String(entry.get('placeId') || ''),
+                placeType: String(entry.get('placeType') || ''),
+                date: String(entry.get('date') || ''),
+                scope: String(entry.get('scope') || 'Austin')
+              }));
+              const visitDates = tripVisitDates(
+                { scope: String(row.get('scope') || 'Austin'), startDate: scanStart, endDate: scanEnd },
+                locations, diaryVisits, new Date().toISOString().slice(0, 10)
+              );
+              const reconciled = reconcileTripTimeline({
+                placeIds: String(row.get('placeIds') || '').split(',').filter(Boolean),
+                completedPlaceIds: String(row.get('completedPlaceIds') || '').split(',').filter(Boolean),
+              }, visitDates);
+              if (reconciled.addedIds.length || reconciled.newlyCompletedIds.length) {
+                row.set('placeIds', reconciled.placeIds.join(','));
+                row.set('completedPlaceIds', reconciled.completedPlaceIds.join(','));
+                await row.save();
+              }
+              return res.status(200).json({
+                success: true,
+                route: { id, placeIds: reconciled.placeIds, completedPlaceIds: reconciled.completedPlaceIds },
+                addedCount: reconciled.addedIds.length,
+                checkedCount: reconciled.newlyCompletedIds.length - reconciled.addedIds.length,
+                visitDates
+              });
+            }
             if (action === 'delete') {
               await row.delete();
               return res.status(200).json({ success: true });
