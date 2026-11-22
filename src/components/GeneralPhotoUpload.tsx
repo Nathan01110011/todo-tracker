@@ -1,5 +1,5 @@
 import { useRef, useState, type ChangeEvent } from 'react';
-import { Camera, CheckCircle2, FileImage, FolderOpen, Loader2, MapPin, X } from 'lucide-react';
+import { Camera, CheckCircle2, FileImage, FolderOpen, Loader2, X } from 'lucide-react';
 import { format } from 'date-fns';
 import type { DiaryEntry } from '../types';
 import { capturedTripDay } from '../lib/tripVisits';
@@ -22,6 +22,7 @@ export default function GeneralPhotoUpload({ password, onUploaded, onMessage, on
   const [pending, setPending] = useState<PendingPhoto[]>([]);
   const [progress, setProgress] = useState('');
   const [inspecting, setInspecting] = useState(false);
+  const [useStandardPicker, setUseStandardPicker] = useState(false);
 
   const prepareFiles = async (files: File[]) => {
     if (!files.length) return;
@@ -50,11 +51,13 @@ export default function GeneralPhotoUpload({ password, onUploaded, onMessage, on
 
   const chooseFiles = async () => {
     if (inspecting || progress || !password) return;
+    if (useStandardPicker) { fileInputRef.current?.click(); return; }
     try {
       const files = await selectOriginalPhotos(fileInputRef.current);
       if (files) await prepareFiles(files);
     } catch (error: any) {
-      onMessage('Could not open the Files picker: ' + (error?.message || 'please use the gallery option instead.'));
+      setUseStandardPicker(true);
+      onMessage('The original-file picker is unavailable. Tap Upload original photos again to use the standard Files picker.');
     }
   };
 
