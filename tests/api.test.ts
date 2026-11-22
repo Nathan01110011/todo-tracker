@@ -340,3 +340,80 @@ test('photos check off only the matching dated trip stops, using capture date an
   assert.deepEqual(byId('undated').completedPlaceIds,[]);
   assert.deepEqual(byId('unrelated').completedPlaceIds,[]);
 });
+
+
+test('Scan For Additions finds only saved visits in a trip window and is idempotent', async () => {
+  sharedDoc.sheetsByTitle = {};
+  const places = await sharedDoc.addSheet({ title:'Places',headerValues:['id','name','scope','status','date'] });
+  const hotels = await sharedDoc.addSheet({ title:'Hotels',headerValues:['id','name','scope','status','date'] });
+  const diary = await sharedDoc.addSheet({ title:'Diary',headerValues:['id','date','title','placeId','placeType','scope'] });
+  const photos = await sharedDoc.addSheet({ title:'Photos',headerValues:['locationId','url','capturedAt','uploadedAt'] });
+  const routes = await sharedDoc.addSheet({ title:'Routes',headerValues:['id','name','placeIds','scope','tripType','completedPlaceIds','status','startDate','endDate'] });
+  const addPlace = async (id: string, status: string, date: string, scope='USA') => {
+    await places.addRow({ id,name:id,scope,status,date });
+  };
+  await addPlace('planned','To Do','');
+  await addPlace('photo','Visited','2024-02-03'); // first ever visit predates the trip
+  await addPlace('manual','Visited','2026-04-10');
+  await addPlace('diary','To Do',''); // typed diary is evidence of an actual visit
+  await addPlace('late','Visited','2026-04-14'); // outside end
+  await addPlace('elsewhere','Visited','2026-04-11','Austin'); // different tracker
+  await addPlace('undated','Visited',''); // no evidence date
+  await hotels.addRow({ id:'hotel',name:'Hotel',scope:'USA',status:'Visited',date:'2026-04-13' });
+  await diary.addRow({ id:'log1',date:'2026-04-11',title:'Diary',placeId:'diary',placeType:'place',scope:'USA' });
+  await diary.addRow({ id:'log2',date:'2026-04-11',title:'Unlinked',placeId:'',placeType:'general-photo',scope:'USA' });
+  await photos.addRow({ locationId:'photo',url:'https://example.com/old.jpg',capturedAt:'2026:04:12 09:00:00',uploadedAt:'2026-11-21T12:00:00Z' });
+  await photos.addRow({ locationId:'undated',url:'https://example.com/undated.jpg',capturedAt:'',uploadedAt:'2026-04-12T09:00:00Z' });
+  await routes.addRow({
+    id:'trip',name:'April tour',scope:'USA',tripType:'ordered',
+    placeIds:'place:planned,photo',completedPlaceIds:'place:planned',status:'completed',
+    startDate:'2026-04-10',endDate:'2026-04-13'
+  });
+  await routes.addRow({ id:'other',name:'Other',scope:'USA',placeIds:'place:planned',completedPlaceIds:'',status:'active',startDate:'2026-05-01',endDate:'2026-05-03' });
+  const unauth = await request('POST',{ type:'route',action:'scanVisits',id:'trip' });
+  assert.equal(unauth.status,401);
+  assert.equal(routes.rows[0].get('placeIds'),'place:planned,photo');
+  const scanned = await request('POST',{ type:'route',action:'scanVisits',id:'trip' },'test-owner');
+  assert.equal(scanned.status,200);
+  assert.equal(scanned.data.addedCount,3);
+  assert.equal(scanned.data.checkedCount,1);
+  assert.deepEqual(scanned.data.route.placeIds,[
+    'place:planned','photo','place:manual','place:diary','hotel:hotel'
+  ]);
+  assert.deepEqual(scanned.data.route.completedPlaceIds,[
+    'place:planned','photo','place:manual','place:diary','hotel:hotel'
+  ]);
+  assert.equal(scanned.data.visitDates['place:photo'],'2026-04-12');
+  assert.equal(scanned.data.visitDates['place:diary'],'2026-04-11');
+  assert.equal(routes.rows[0].get('status'),'completed');
+  assert.equal(routes.rows[1].get('placeIds'),'place:planned');
+  assert.equal(places.rows.find(row => row.get('id') === 'diary')?.get('status'),'To Do', 'do not mutate unrelated ToDo status');
+  const again = await request('POST',{type:'route',action:'scanVisits',id:'trip'},'test-owner');
+  assert.equal(again.status,200);
+  assert.equal(again.data.addedCount,0);
+  assert.equal(again.data.checkedCount,0);
+  assert.deepEqual(again.data.route.placeIds,scanned.data.route.placeIds);
+  assert.deepEqual((await request('GET')).data.routes.find((route: any)=>route.id==='trip').completedPlaceIds,scanned.data.route.completedPlaceIds);
+  assert.equal((await request('POST',{type:'route',action:'scanVisits',id:'missing'},'test-owner')).status,404);
+  await routes.addRow({id:'no-date',name:'No dates',scope:'USA',placeIds:'',completedPlaceIds:'',status:'planned',startDate:'',endDate:''});
+  assert.equal((await request('POST',{type:'route',action:'scanVisits',id:'no-date'},'test-owner')).status,400);
+});
+
+test('single-day trip scans include the boundary but ignore ambiguous or unrelated photo links', async () => {
+  sharedDoc.sheetsByTitle = {};
+  const places = await sharedDoc.addSheet({title:'Places',headerValues:['id','name','status','date','scope']});
+  const hotels = await sharedDoc.addSheet({title:'Hotels',headerValues:['id','name','status','date','scope']});
+  const photos = await sharedDoc.addSheet({title:'Photos',headerValues:['locationId','url','capturedAt']});
+  const diary = await sharedDoc.addSheet({title:'Diary',headerValues:['id','placeId','placeType','date','scope']});
+  const routes = await sharedDoc.addSheet({title:'Routes',headerValues:['id','name','scope','startDate','endDate','placeIds','completedPlaceIds','status']});
+  await places.addRow({id:'collision',name:'Place',status:'To Do',date:'',scope:'USA'});
+  await hotels.addRow({id:'collision',name:'Hotel',status:'To Do',date:'',scope:'USA'});
+  await places.addRow({id:'real',name:'Real place',status:'Visited',date:'2026-04-11',scope:'USA'});
+  await photos.addRow({locationId:'collision',url:'https://example.com/collision.jpg',capturedAt:'2026-04-11T12:00:00'});
+  await diary.addRow({id:'typed',placeId:'collision',placeType:'hotel',date:'2026-04-11',scope:'USA'});
+  await routes.addRow({id:'day',name:'Day',scope:'USA',startDate:'2026-04-11',endDate:'',placeIds:'',completedPlaceIds:'',status:'planned'});
+  const scan = await request('POST',{type:'route',action:'scanVisits',id:'day'},'test-owner');
+  assert.equal(scan.status,200);
+  assert.deepEqual(scan.data.route.placeIds,['hotel:collision','place:real']);
+  assert.equal(scan.data.route.placeIds.includes('place:collision'),false,'untyped photo cannot prove which duplicate ID was visited');
+});
