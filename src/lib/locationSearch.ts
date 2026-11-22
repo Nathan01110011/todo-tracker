@@ -30,7 +30,32 @@ export interface NominatimLocation {
   [field: string]: unknown;
 }
 
-export function locationSearchUrl(scope: LocationSearchScope, query: string): string {
+/** One-off coordinates supplied by the user in the Add Place dialog. */
+export interface SearchPosition { lat: number; lng: number }
+
+export function validSearchPosition(position: SearchPosition | null | undefined): position is SearchPosition {
+  return !!position && Number.isFinite(position.lat) && Math.abs(position.lat) <= 90
+    && Number.isFinite(position.lng) && Math.abs(position.lng) <= 180;
+}
+
+export function locationDistanceMiles(a: SearchPosition, b: SearchPosition): number {
+  const radians = (degrees: number) => degrees * Math.PI / 180;
+  const dLat = radians(b.lat - a.lat);
+  const dLng = radians(b.lng - a.lng);
+  const h = Math.sin(dLat / 2) ** 2
+    + Math.cos(radians(a.lat)) * Math.cos(radians(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 3958.7613 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(Math.max(0, 1 - h)));
+}
+
+export function sortLocationsByDistance(results: NominatimLocation[], origin: SearchPosition | null): NominatimLocation[] {
+  if (!validSearchPosition(origin)) return results;
+  // Modern JS sort is stable; preserve Nominatim's order for equidistant matches.
+  return [...results].sort((a, b) =>
+    locationDistanceMiles(origin, { lat: Number(a.lat), lng: Number(a.lon) })
+    - locationDistanceMiles(origin, { lat: Number(b.lat), lng: Number(b.lon) }));
+}
+
+export function locationSearchUrl(scope: LocationSearchScope, query: string, nearby?: SearchPosition | null): string {
   const rule = RULES[scope];
   const params = new URLSearchParams({
     format: 'json',
@@ -40,8 +65,17 @@ export function locationSearchUrl(scope: LocationSearchScope, query: string): st
     limit: '20'
   });
   if (rule.viewbox) {
+    // Keep Austin, Texas and UK/Ireland's existing hard geographic boundaries.
     params.set('viewbox', rule.viewbox);
     params.set('bounded', '1');
+  } else if (validSearchPosition(nearby) && Math.abs(nearby.lat) < 85 && Math.abs(nearby.lng) < 179) {
+    // USA covers the whole country; bias results towards an approximate nearby
+    // area without excluding remote results, Alaska or Hawaii. Round to ~1 km
+    // before sending the viewbox to the external geocoder.
+    const lat = Math.round(nearby.lat * 100) / 100;
+    const lng = Math.round(nearby.lng * 100) / 100;
+    const box = [lng - 0.45, lat + 0.45, lng + 0.45, lat - 0.45].map(value => value.toFixed(2));
+    params.set('viewbox', box.join(','));
   }
   return 'https://nominatim.openstreetmap.org/search?' + params.toString();
 }
@@ -69,9 +103,11 @@ export function filterLocationResults(results: unknown, scope: LocationSearchSco
 export async function searchLocations(
   scope: LocationSearchScope,
   query: string,
-  request: typeof fetch = fetch
+  request: typeof fetch = fetch,
+  nearby?: SearchPosition | null
 ): Promise<NominatimLocation[]> {
-  const response = await request(locationSearchUrl(scope, query));
+  const response = await request(locationSearchUrl(scope, query, nearby));
   if (!response.ok) throw new Error('Location search failed');
-  return filterLocationResults(await response.json(), scope);
+  const results = filterLocationResults(await response.json(), scope);
+  return validSearchPosition(nearby) ? sortLocationsByDistance(results, nearby) : results;
 }
