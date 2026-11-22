@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { MapContainer, Marker, TileLayer, useMap, useMapEvents } from 'react-leaflet';
-import { Camera, Loader2, MapPin } from 'lucide-react';
+import { Camera, FolderOpen, Loader2, MapPin, Search, Navigation } from 'lucide-react';
 import type { DiaryEntry } from '../types';
 import { readPhotoExif } from '../lib/photoMetadata';
+import { selectOriginalPhotos, isImageFile } from '../lib/photoPicker';
+import { searchLocations, type NominatimLocation, type LocationSearchScope } from '../lib/locationSearch';
 
 interface PhotoLocationEditorProps {
   entry: DiaryEntry;
@@ -34,6 +36,10 @@ export default function PhotoLocationEditor({ entry, center, onClose, onSave }: 
   const [longitude, setLongitude] = useState(entry.lng ? String(entry.lng) : '');
   const [message, setMessage] = useState('');
   const [reading, setReading] = useState(false);
+  const [locating, setLocating] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searching, setSearching] = useState(false);
+  const [searchResults, setSearchResults] = useState<NominatimLocation[]>([]);
   const [saving, setSaving] = useState(false);
   const originalInput = useRef<HTMLInputElement>(null);
   const lat = Number(latitude);
@@ -50,24 +56,71 @@ export default function PhotoLocationEditor({ entry, center, onClose, onSave }: 
     setLongitude(nextLng.toFixed(6));
   };
 
-  const readOriginal = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+  const inspectOriginal = async (file: File) => {
+    if (!isImageFile(file)) { setMessage('Choose a photo file, not an archive.'); return; }
     setReading(true);
     setMessage('');
     try {
       const metadata = await readPhotoExif(file);
       if (metadata.lat !== null && metadata.lng !== null && !(metadata.lat === 0 && metadata.lng === 0)) {
         setPin(metadata.lat, metadata.lng);
-        setMessage('GPS coordinates read from the original file. Save to attach them to this diary photo.');
+        setMessage('GPS recovered from the selected photo. Save to attach it to your diary.');
       } else {
-        setMessage('No GPS was available in the selected file. Android may have removed it, or this image format is not supported for local metadata reading. You can tap the map to set a location instead.');
+        setMessage(metadata.capturedAt
+          ? 'The file contains a camera timestamp but no readable GPS. Android may have hidden the coordinates. Search for the place or select it on the map.'
+          : 'No embedded GPS found in the file supplied to the site. Search for the place or tap the map.');
       }
     } catch {
-      setMessage('Could not read GPS from that file. Try the original JPEG from Files, or select a spot on the map.');
+      setMessage('Could not read GPS from that file. Choose the original in Files or select a spot on the map.');
     } finally {
       setReading(false);
-      if (originalInput.current) originalInput.current.value = '';
+    }
+  };
+
+  const readOriginal = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (file) await inspectOriginal(file);
+  };
+
+  const browseOriginal = async () => {
+    if (reading || saving) return;
+    try {
+      const files = await selectOriginalPhotos(originalInput.current);
+      if (files?.length) await inspectOriginal(files[0]);
+    } catch {
+      setMessage('File picker unavailable. You can still search for a place or pick it on the map.');
+    }
+  };
+
+  const locateHereNow = () => {
+    if (!navigator.geolocation) { setMessage('Your browser cannot access current location.'); return; }
+    setLocating(true);
+    setMessage('');
+    navigator.geolocation.getCurrentPosition(result => {
+      setPin(result.coords.latitude, result.coords.longitude);
+      setLocating(false);
+      setMessage('Current position selected. Only save this if you are still where the photo was taken.');
+    }, () => {
+      setLocating(false);
+      setMessage('Current location was denied or unavailable. You can still search or choose a map pin.');
+    }, { enableHighAccuracy: true, maximumAge: 0, timeout: 12000 });
+  };
+
+  const searchForLocation = async () => {
+    const query = searchQuery.trim();
+    if (!query || searching) return;
+    setSearching(true);
+    setSearchResults([]);
+    try {
+      const validScope = ['Austin', 'Texas', 'USA', 'UK & Ireland'].includes(entry.scope) ? entry.scope as LocationSearchScope : 'USA';
+      const results = await searchLocations(validScope, query);
+      setSearchResults(results.slice(0, 6));
+      if (!results.length) setMessage('No matches found in this tracker. Try a more specific place name or tap the map.');
+    } catch {
+      setMessage('Could not search places. You can still tap the map to set a pin.');
+    } finally {
+      setSearching(false);
     }
   };
 
@@ -96,15 +149,36 @@ export default function PhotoLocationEditor({ entry, center, onClose, onSave }: 
           <button type="button" className="secondary-button" disabled={saving} onClick={onClose}>Close</button>
         </div>
         <p className="text-xs text-slate-600">
-          Android can hide GPS when you pick a photo from the gallery. To recover it, try the original file via
-          <strong> Files → Internal storage → DCIM → Camera</strong>. Otherwise tap its location on the map.
+          Android may redact GPS before the browser receives a photo. Import an ordinary image from Files (no ZIP), or search for its location and place a pin.
         </p>
         <input ref={originalInput} type="file" hidden aria-label="Choose original photo file" onChange={readOriginal} />
         <button type="button" disabled={reading || saving} className="secondary-button w-full"
-          onClick={() => originalInput.current?.click()}>
-          {reading ? <Loader2 size={16} className="animate-spin" /> : <Camera size={16} />}
-          {reading ? 'Reading original…' : 'Read GPS from original file'}
+          onClick={browseOriginal}>
+          {reading ? <Loader2 size={16} className="animate-spin" /> : <FolderOpen size={16} />}
+          {reading ? 'Reading original…' : 'Read GPS from original photo (Files)'}
         </button>
+        <button type="button" disabled={locating || saving} className="secondary-button w-full" onClick={locateHereNow}>
+          {locating ? <Loader2 size={16} className="animate-spin" /> : <Navigation size={16} />}
+          {locating ? 'Finding position…' : 'Use my location now (for photos just taken here)'}
+        </button>
+        <div className="space-y-2">
+          <label className="block text-xs text-slate-600" htmlFor="photo-location-search">Find a place or address</label>
+          <div className="flex items-center gap-2">
+            <input id="photo-location-search" type="search" value={searchQuery} onChange={event => setSearchQuery(event.target.value)}
+              onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); void searchForLocation(); } }}
+              placeholder="e.g. Chicago Riverwalk" className="flex-1 min-w-0 border border-slate-200 rounded-lg px-3 py-2" />
+            <button type="button" onClick={searchForLocation} disabled={searching || !searchQuery.trim()} className="secondary-button">
+              {searching ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />} Find
+            </button>
+          </div>
+          {searchResults.length > 0 && <div className="grid gap-1 max-h-36 overflow-y-auto border border-slate-200 rounded-lg p-1">
+            {searchResults.map((result, i) => <button type="button" key={i}
+              className="text-left text-xs rounded-lg px-3 py-2 hover:bg-slate-100"
+              onClick={() => { setPin(Number(result.lat), Number(result.lon)); setSearchResults([]); setMessage('Place selected. Adjust the pin on the map if necessary.'); }}>
+              {result.display_name}
+            </button>)}
+          </div>}
+        </div>
         {message && <p role="status" className="text-xs text-slate-600">{message}</p>}
         <div className="h-64 rounded-xl overflow-hidden border border-slate-200">
           <MapContainer center={mapCenter} zoom={entry.lat && entry.lng ? 13 : 11}
